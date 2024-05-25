@@ -1,5 +1,6 @@
 import json
 import os
+import subprocess
 import sys
 import time
 import tkinter as tk
@@ -10,6 +11,7 @@ from tkinter import filedialog, messagebox, ttk
 import customtkinter as ctk
 import cv2
 import numpy as np
+import requests
 from moviepy.editor import (  # Installed Pillow version 9.5, otherwise it will give an Antialiasing error when using the most current version
     CompositeVideoClip,
     ImageClip,
@@ -29,8 +31,56 @@ SETTINGS_PATH = Path(MAIN_PATH, "settings.json")
 
 # TODO: Make duplicate elements in gui dynamic by giving them the ability to be displayed in both tabs while keeping their different functions in their individual tabs (?v1.x)
 
-# TODO: Add a togglable function which can convert images to png format (v1.0)
-# TODO: Write code for an update checker (v1.0)
+# TODO: Write code for when the user wants to downgrade their current version of the application (v1.0)
+
+
+class UpdateAvailableWindow(ctk.CTk):
+    def __init__(self):
+        super().__init__()
+
+    def run(self, current_version: float, latest_version: float):
+        self.title("Update Available")
+        self.geometry("400x200")
+        self.resizable(False, False)
+        self.attributes("-topmost", True)
+
+        self.create_window_elements(current_version, latest_version)
+
+    def create_window_elements(self, current_version: float, latest_version: float):
+        label_title = ctk.CTkLabel(
+            self, text="A new version is available!", font=("Arial", 22)
+        )
+        label_title.place(relx=0.5, rely=0.2, anchor="center")
+
+        label_versions = ctk.CTkLabel(
+            self,
+            text=f"v{current_version} (Current)  →  v{latest_version}",
+            font=("Arial", 14),
+        )
+        label_versions.place(relx=0.5, rely=0.4, anchor="center")
+
+        label_update_question = ctk.CTkLabel(
+            self, text="Would you like to update?", font=("Arial", 14)
+        )
+        label_update_question.place(relx=0.5, rely=0.6, anchor="center")
+
+        button_yes = ctk.CTkButton(
+            self, text="Yes", command=self.update, font=("Arial", 14)
+        )
+        button_yes.place(relx=0.3, rely=0.8, anchor="center")
+
+        button_no = ctk.CTkButton(
+            self, text="No", command=self.close, font=("Arial", 14)
+        )
+        button_no.place(relx=0.7, rely=0.8, anchor="center")
+
+    def update(self):
+        updater_path = Path(MAIN_PATH, "Updater.exe")
+        subprocess.Popen([str(updater_path)], shell=True)
+        return
+
+    def close(self):
+        self.destroy()
 
 
 class ImageProcessor:
@@ -392,7 +442,7 @@ class MainWindow(ctk.CTk):
         main_title = ctk.CTkLabel(
             self, text="Image & Video Processor", font=("Arial", 28)
         )
-        main_title.place(relx=0.35, rely=0.03)
+        main_title.place(relx=0.5, rely=0.03, anchor="center")
 
         # Tabs
         tabview = ctk.CTkTabview(self, fg_color="#242424")
@@ -1160,9 +1210,47 @@ def create_settings_json():
     print("Created settings.json")
 
 
+def check_version():
+    def get_current_version():
+        try:
+            with open("version.txt", "r") as file:
+                return file.read().strip()
+        except FileNotFoundError:
+            return None
+
+    def get_latest_version(repo_url):
+        response = requests.get(repo_url + "version.txt")
+        if response.status_code == 200:
+            return response.text.strip()
+        else:
+            return None
+
+    repo_url = "https://raw.githubusercontent.com/0DarkPhoenix/Add-Logo-Processor/main/"
+
+    current_version = get_current_version()
+    latest_version = get_latest_version(repo_url)
+
+    if current_version is None or latest_version is None:
+        print("Failed to retrieve versions.")
+        return
+
+    print(f"Current version: {current_version}")
+    print(f"Latest version: {latest_version}")
+
+    if latest_version > current_version:
+        print(f"New version available! ({current_version} -> {latest_version})")
+        update_window = UpdateAvailableWindow()
+        update_window.run()
+        update_window.mainloop()
+    else:
+        print("You are on the most current version!")
+
+
 if __name__ == "__main__":
     if not os.path.exists(SETTINGS_PATH):
         create_settings_json()
+
+    check_version()
 
     main_window = MainWindow()
     main_window.run()
