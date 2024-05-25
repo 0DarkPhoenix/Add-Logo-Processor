@@ -51,6 +51,7 @@ def main():
         else get_downgrade_version()
     )
 
+    # main executable is always located in /Release/[version]
     releases_url = repo_url + "Release" + version
 
     exe_filename = "Add Logo Processor.exe"
