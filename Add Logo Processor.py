@@ -29,9 +29,8 @@ else:
 
 SETTINGS_PATH = Path(MAIN_PATH, "settings.json")
 
-# TODO: Make duplicate elements in gui dynamic by giving them the ability to be displayed in both tabs while keeping their different functions in their individual tabs (?v1.x)
-
 # TODO: Write code for when the user wants to downgrade their current version of the application (v1.0)
+# TODO: Add sanitization to the text boxes where you can only input numbers (use code from Galaxy Life Notifier)
 
 
 class UpdateAvailableWindow(ctk.CTk):
@@ -1225,7 +1224,7 @@ def check_version():
         else:
             return None
 
-    repo_url = "https://raw.githubusercontent.com/0DarkPhoenix/Add-Logo-Processor/main/"
+    repo_url = "https://raw.githubusercontent.com/0DarkPhoenix/Add-Logo-Processor/main/"  # TODO: Put the repo url in a separate file so both this script and the Updater can access it
 
     current_version = get_current_version()
     latest_version = get_latest_version(repo_url)

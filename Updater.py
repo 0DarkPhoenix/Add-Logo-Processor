@@ -1,5 +1,8 @@
+import os
+
 import psutil
 import requests
+from numpy import delete
 
 
 def get_current_version():
@@ -59,8 +62,19 @@ def main():
     kill_process(exe_filename)
 
     if download_version(releases_url, exe_filename):
+
+        # Write version to version.txt
         with open("version.txt", "w") as file:
             file.write(version)
+
+        # If downgrade.txt exists, delete it
+        try:
+            os.remove("downgrade_version.txt")
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            print(f"Error removing downgrade_version.txt: {e}")
+
         print("Update successful.")
     else:
         print("Failed to download the new version.")
