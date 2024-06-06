@@ -4,6 +4,8 @@ import psutil
 import requests
 from numpy import delete
 
+# TODO: Add code which always converts the old settings file with the new settings file using templates and filling it in with the settings it currently has
+
 
 def get_current_version():
     try:
