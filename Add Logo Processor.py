@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -25,8 +26,45 @@ else:
 
 SETTINGS_PATH = Path(MAIN_PATH, "settings.json")
 CONFIG_PATH = Path(MAIN_PATH, "config.json")
+LOG_FILE_PATH = Path(MAIN_PATH, "add_logo_processor.log")
 
-# TODO: Write code for when the user wants to downgrade their current version of the application (v1.0)
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[logging.FileHandler(LOG_FILE_PATH), logging.StreamHandler()],
+)
+
+
+# Global exception handler
+def handle_exception(exc_type, exc_value, exc_traceback):
+    if issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        return
+    logging.critical(
+        "Uncaught exception", exc_info=(exc_type, exc_value, exc_traceback)
+    )
+
+
+sys.excepthook = handle_exception
+
+
+# Colors
+DEFAULT_WHITE = "#dce4ee"
+DEFAULT_GRAY = "#737373"
+
+# Constants
+SCALE_DEFAULT = 10
+OFFSET_DEFAULT = 10
+LOGO_CORNER_DEFAULT = "Bottom Left"
+IMAGE_FORMATS = ["png", "jpg"]
+VIDEO_SCALE_DEFAULT = 13
+VIDEO_WIDTH_OFFSET_DEFAULT = 10
+VIDEO_HEIGHT_OFFSET_DEFAULT = 15
+
+# ----------------------------------- v1.1 ----------------------------------- #
+# TODO: Write code for when the user wants to downgrade their current version of the application
+# TODO: Add functionality to see a popup with the entire path if it exceeds a specified amount of characters, which makes it easier to read really long path names
 
 
 class UpdateAvailableWindow(ctk.CTk):
@@ -249,7 +287,7 @@ class ImageProcessor:
             )
             MainWindow.save_settings(settings)
         except Exception as e:
-            print(f"Error: {e}")
+            logging.error(f"Error: {e}")
 
         # Create a progress bar
         total_files = len(files)
@@ -285,7 +323,7 @@ class ImageProcessor:
 
         end_time = time.time()
         execution_time = round(end_time - start_time, 3)
-        print(f"All images were processed in {execution_time} seconds")
+        logging.info(f"All images were processed in {execution_time} seconds")
         MainWindow.finish_progress_bar_image_processor(main_window, execution_time)
 
 
@@ -311,7 +349,7 @@ class VideoProcessor:
             video_clip = VideoFileClip(video_path)
 
             # Load the logo image and resize it to fit the video dimensions
-            logo_clip = ImageClip(logo_path)
+            logo_clip = ImageClip(str(logo_path))
             scale_factor = scale / 100
 
             if video_clip.h < video_clip.w:
@@ -386,7 +424,7 @@ class VideoProcessor:
             )
             MainWindow.save_settings(settings)
         except Exception as e:
-            print(f"Error writing settings: {e}")
+            logging.error(f"Error writing settings: {e}")
 
         # Display Progress Bar
         total_files = len(files)
@@ -418,7 +456,7 @@ class VideoProcessor:
 
         end_time = time.time()
         execution_time = round(end_time - start_time, 3)
-        print(f"Processed all videos in {execution_time} seconds")
+        logging.info(f"Processed all videos in {execution_time} seconds")
         MainWindow.finish_progress_bar_video_processor(main_window, execution_time)
 
 
@@ -540,9 +578,7 @@ class MainWindow(ctk.CTk):
         self.entry_logo_image = ctk.CTkEntry(
             self.images_tab, placeholder_text="Path to Logo Image"
         )
-        self.entry_logo_image.grid(
-            row=12, column=2, sticky="ew"
-        )  # TODO: Add functionality to see a popup with the entire path if it exceeds a specified amount of characters, which makes it easier to read really long path names (v1.1)
+        self.entry_logo_image.grid(row=12, column=2, sticky="ew")
 
         self.browse_button_logo_image = ctk.CTkButton(
             self.images_tab,
@@ -553,7 +589,7 @@ class MainWindow(ctk.CTk):
 
         self.label_scale_logo_image = ctk.CTkLabel(
             self.images_tab,
-            text="Scale of the logo image [Range: 1 to 100 , Default: 10]",
+            text=f"Scale of the logo image [Range: 1 to 100 , Default: {SCALE_DEFAULT}]",
             font=("Arial", 14),
         )
         self.label_scale_logo_image.grid(row=14, column=2, sticky="s")
@@ -615,7 +651,7 @@ class MainWindow(ctk.CTk):
         # Offset logo image
         self.label_offset_width_logo_image = ctk.CTkLabel(
             self.images_tab,
-            text="Width Offset [Range: 0 to 100, Default: 10]",
+            text=f"Width Offset [Range: 0 to 100, Default: {OFFSET_DEFAULT}]",
             font=("Arial", 14),
         )
         self.label_offset_width_logo_image.grid(row=12, column=3, sticky="s")
@@ -630,7 +666,7 @@ class MainWindow(ctk.CTk):
 
         self.label_offset_height_logo_image = ctk.CTkLabel(
             self.images_tab,
-            text="Height Offset [Range: 0 to 100, Default: 10]",
+            text=f"Height Offset [Range: 0 to 100, Default: {OFFSET_DEFAULT}]",
             font=("Arial", 14),
         )
         self.label_offset_height_logo_image.grid(row=14, column=3, sticky="s")
@@ -646,7 +682,7 @@ class MainWindow(ctk.CTk):
         # Convert images to png
         self.combobox_convert_images_format = ctk.CTkComboBox(
             self.images_tab,
-            values=["png", "jpg"],
+            values=IMAGE_FORMATS,
             state="disabled",
             font=("Arial", 14),
             width=80,
@@ -657,7 +693,7 @@ class MainWindow(ctk.CTk):
             self.images_tab,
             text="Convert to format",
             font=("Arial", 14),
-            text_color="#737373",
+            text_color=DEFAULT_GRAY,
             command=self.switch_convert_images_to_format_actions,
         )
         self.switch_convert_images_to_format.grid(
@@ -754,7 +790,7 @@ class MainWindow(ctk.CTk):
 
         self.label_scale_logo_video = ctk.CTkLabel(
             master=self.videos_tab,
-            text="Scale of the logo image [Range: 1 to 100 , Default: 13]",
+            text=f"Scale of the logo image [Range: 1 to 100 , Default: {VIDEO_SCALE_DEFAULT}]",
             font=("Arial", 14),
         )
         self.label_scale_logo_video.grid(row=12, column=2, sticky="s")
@@ -816,7 +852,7 @@ class MainWindow(ctk.CTk):
         # Offset logo image
         self.label_offset_width_logo_video = ctk.CTkLabel(
             master=self.videos_tab,
-            text="Width Offset [Range: -100 to 100, Default: 10]",
+            text=f"Width Offset [Range: -100 to 100, Default: {VIDEO_WIDTH_OFFSET_DEFAULT}]",
             font=("Arial", 14),
         )
         self.label_offset_width_logo_video.grid(row=10, column=3, sticky="s")
@@ -831,7 +867,7 @@ class MainWindow(ctk.CTk):
 
         self.label_offset_height_logo_video = ctk.CTkLabel(
             master=self.videos_tab,
-            text="Height Offset [Range: -100 to 100, Default: 15]",
+            text=f"Height Offset [Range: -100 to 100, Default: {VIDEO_HEIGHT_OFFSET_DEFAULT}]",
             font=("Arial", 14),
         )
         self.label_offset_height_logo_video.grid(row=12, column=3, sticky="s")
@@ -872,7 +908,7 @@ class MainWindow(ctk.CTk):
                 if parent_path.exists():
                     initial_dir = str(parent_path)
             except Exception as e:
-                print(f"Error processing path: {e}")
+                logging.error(f"Error processing path: {e}")
 
         try:
             if "Path to Logo Image" in entry.cget("placeholder_text"):
@@ -896,55 +932,57 @@ class MainWindow(ctk.CTk):
 
     def toggle_logo_actions(self):
         if self.toggle_logo_image.get() == 1:
-            self.toggle_logo_image.configure(text_color="#dce4ee")
-            self.label_logo_image.configure(text_color="#dce4ee")
-            self.entry_logo_image.configure(state="normal", text_color="#dce4ee")
+            self.toggle_logo_image.configure(text_color=DEFAULT_WHITE)
+            self.label_logo_image.configure(text_color=DEFAULT_WHITE)
+            self.entry_logo_image.configure(state="normal", text_color=DEFAULT_WHITE)
             self.browse_button_logo_image.configure(state="normal")
-            self.label_scale_logo_image.configure(text_color="#dce4ee")
-            self.entry_scale_logo_image.configure(state="normal", text_color="#dce4ee")
-            self.label_corner_selection_image.configure(text_color="#dce4ee")
+            self.label_scale_logo_image.configure(text_color=DEFAULT_WHITE)
+            self.entry_scale_logo_image.configure(
+                state="normal", text_color=DEFAULT_WHITE
+            )
+            self.label_corner_selection_image.configure(text_color=DEFAULT_WHITE)
             self.radiobutton_bottomleft_image.configure(state="normal")
             self.radiobutton_bottomright_image.configure(state="normal")
             self.radiobutton_topleft_image.configure(state="normal")
             self.radiobutton_topright_image.configure(state="normal")
-            self.label_offset_width_logo_image.configure(text_color="#dce4ee")
+            self.label_offset_width_logo_image.configure(text_color=DEFAULT_WHITE)
             self.entry_offset_width_logo_image.configure(
-                state="normal", text_color="#dce4ee"
+                state="normal", text_color=DEFAULT_WHITE
             )
-            self.label_offset_height_logo_image.configure(text_color="#dce4ee")
+            self.label_offset_height_logo_image.configure(text_color=DEFAULT_WHITE)
             self.entry_offset_height_logo_image.configure(
-                state="normal", text_color="#dce4ee"
+                state="normal", text_color=DEFAULT_WHITE
             )
         else:
-            self.toggle_logo_image.configure(text_color="#737373")
-            self.label_logo_image.configure(text_color="#737373")
-            self.entry_logo_image.configure(state="disabled", text_color="#737373")
+            self.toggle_logo_image.configure(text_color=DEFAULT_GRAY)
+            self.label_logo_image.configure(text_color=DEFAULT_GRAY)
+            self.entry_logo_image.configure(state="disabled", text_color=DEFAULT_GRAY)
             self.browse_button_logo_image.configure(state="disabled")
-            self.label_scale_logo_image.configure(text_color="#737373")
+            self.label_scale_logo_image.configure(text_color=DEFAULT_GRAY)
             self.entry_scale_logo_image.configure(
-                state="disabled", text_color="#737373"
+                state="disabled", text_color=DEFAULT_GRAY
             )
-            self.label_corner_selection_image.configure(text_color="#737373")
+            self.label_corner_selection_image.configure(text_color=DEFAULT_GRAY)
             self.radiobutton_bottomleft_image.configure(state="disabled")
             self.radiobutton_bottomright_image.configure(state="disabled")
             self.radiobutton_topleft_image.configure(state="disabled")
             self.radiobutton_topright_image.configure(state="disabled")
-            self.label_offset_width_logo_image.configure(text_color="#737373")
+            self.label_offset_width_logo_image.configure(text_color=DEFAULT_GRAY)
             self.entry_offset_width_logo_image.configure(
-                state="disabled", text_color="#737373"
+                state="disabled", text_color=DEFAULT_GRAY
             )
-            self.label_offset_height_logo_image.configure(text_color="#737373")
+            self.label_offset_height_logo_image.configure(text_color=DEFAULT_GRAY)
             self.entry_offset_height_logo_image.configure(
-                state="disabled", text_color="#737373"
+                state="disabled", text_color=DEFAULT_GRAY
             )
 
     def switch_convert_images_to_format_actions(self):
         if self.switch_convert_images_to_format.get() == 1:
             self.combobox_convert_images_format.configure(state="readonly")
-            self.switch_convert_images_to_format.configure(text_color="#dce4ee")
+            self.switch_convert_images_to_format.configure(text_color=DEFAULT_WHITE)
         else:
             self.combobox_convert_images_format.configure(state="disabled")
-            self.switch_convert_images_to_format.configure(text_color="#737373")
+            self.switch_convert_images_to_format.configure(text_color=DEFAULT_GRAY)
 
     def check_values_and_paths_image_processor(self):
         input_folder_path = Path(self.entry_input_image.get())
@@ -962,18 +1000,19 @@ class MainWindow(ctk.CTk):
                 "Error", "Invalid path for logo image: No file recognized"
             )
             return
-        scale_value = int(self.entry_scale_logo_image.get())
-        width_offset = int(self.entry_offset_width_logo_image.get())
-        height_offset = int(self.entry_offset_height_logo_image.get())
+        try:
+            scale_value = int(self.entry_scale_logo_image.get())
+            width_offset = int(self.entry_offset_width_logo_image.get())
+            height_offset = int(self.entry_offset_height_logo_image.get())
 
-        if not (1 <= scale_value <= 100):
-            messagebox.showerror("Error", "Invalid scale value")
-            return
-        if not (0 <= width_offset <= 100):
-            messagebox.showerror("Error", "Invalid Width Offset value")
-            return
-        if not (0 <= height_offset <= 100):
-            messagebox.showerror("Error", "Invalid Height Offset value")
+            if not (1 <= scale_value <= 100):
+                raise ValueError("Invalid scale value")
+            if not (0 <= width_offset <= 100):
+                raise ValueError("Invalid Width Offset value")
+            if not (0 <= height_offset <= 100):
+                raise ValueError("Invalid Height Offset value")
+        except ValueError as e:
+            messagebox.showerror("Error", str(e))
             return
 
         # Check if the maximum pixel value is valid
@@ -1024,18 +1063,19 @@ class MainWindow(ctk.CTk):
                 "Error", "Invalid path for logo image: No file recognized"
             )
             return
-        scale_value = int(self.entry_scale_logo_video.get())
-        width_offset = int(self.entry_offset_width_logo_video.get())
-        height_offset = int(self.entry_offset_height_logo_video.get())
+        try:
+            scale_value = int(self.entry_scale_logo_video.get())
+            width_offset = int(self.entry_offset_width_logo_video.get())
+            height_offset = int(self.entry_offset_height_logo_video.get())
 
-        if not (1 <= scale_value <= 100):
-            messagebox.showerror("Error", "Invalid scale value")
-            return
-        if not (0 <= width_offset <= 100):
-            messagebox.showerror("Error", "Invalid Width Offset value")
-            return
-        if not (0 <= height_offset <= 100):
-            messagebox.showerror("Error", "Invalid Height Offset value")
+            if not (1 <= scale_value <= 100):
+                raise ValueError("Invalid scale value")
+            if not (0 <= width_offset <= 100):
+                raise ValueError("Invalid Width Offset value")
+            if not (0 <= height_offset <= 100):
+                raise ValueError("Invalid Height Offset value")
+        except ValueError as e:
+            messagebox.showerror("Error", str(e))
             return
 
         overwrite_output_images = self.checkbox_overwrite_video.get()
@@ -1242,26 +1282,26 @@ def create_settings_json():
             "number_pixels": "",
             "add_logo": False,
             "logo_image_path": "",
-            "scale": "10",
-            "width_offset": "10",
-            "height_offset": "10",
-            "logo_corner": "Bottom Left",
+            "scale": str(SCALE_DEFAULT),
+            "width_offset": str(OFFSET_DEFAULT),
+            "height_offset": str(OFFSET_DEFAULT),
+            "logo_corner": LOGO_CORNER_DEFAULT,
             "convert_to_format": False,
-            "format": "png",
+            "format": IMAGE_FORMATS[0],
         },
         "video_processor": {
             "input_folder_path": "",
             "output_folder_path": "",
             "logo_image_path": "",
-            "scale": "13",
-            "width_offset": "10",
-            "height_offset": "15",
-            "logo_corner": "Bottom Left",
+            "scale": str(VIDEO_SCALE_DEFAULT),
+            "width_offset": str(VIDEO_WIDTH_OFFSET_DEFAULT),
+            "height_offset": str(VIDEO_HEIGHT_OFFSET_DEFAULT),
+            "logo_corner": LOGO_CORNER_DEFAULT,
         },
     }
 
     MainWindow.save_settings(default_settings_json_template)
-    print("Created settings.json")
+    logging.info("Created settings.json")
 
 
 def check_version() -> None:
@@ -1283,26 +1323,29 @@ def check_version() -> None:
         latest_version = get_latest_version(repo_url)
 
         if current_version is None or latest_version is None:
-            print("Failed to retrieve versions.")
+            logging.error("Failed to retrieve versions.")
             return
 
-        print(f"Current version: {current_version}")
-        print(f"Latest version: {latest_version}")
+        logging.info(f"Current version: {current_version}")
+        logging.info(f"Latest version: {latest_version}")
 
         if latest_version > current_version:
-            print(f"New version available! ({current_version} -> {latest_version})")
+            logging.info(
+                f"New version available! ({current_version} -> {latest_version})"
+            )
             update_window = UpdateAvailableWindow()
             update_window.run()
             update_window.mainloop()
         else:
-            print("You are on the most current version!")
+            logging.info("You are on the most recent version!")
 
-    except:
-        print("Failed to check if a new version is available")
-        pass
+    except Exception as e:
+        logging.error(f"Failed to check if a new version is available: {e}")
+        logging.info(f"Please check the log file at {LOG_FILE_PATH} for more details.")
 
 
 if __name__ == "__main__":
+    logging.info(f"{'#'*40} Add Logo Processor application has started {'#'*40}")
     if not os.path.exists(CONFIG_PATH):
         create_config_json()
 

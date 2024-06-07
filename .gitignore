@@ -2,3 +2,5 @@ Test Data/
 settings.json
 config.json
 dist/
+add_logo_processor.log
+updater.log

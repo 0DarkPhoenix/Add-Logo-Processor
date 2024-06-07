@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import sys
 from pathlib import Path
@@ -15,8 +16,29 @@ else:
     MAIN_PATH = os.path.abspath(os.path.dirname(__file__))
 
 CONFIG_PATH = Path(MAIN_PATH, "config.json")
-# TODO: Add code which always converts the old settings file with the new settings file using templates and filling it in with the settings it currently has
+LOG_FILE_PATH = Path(MAIN_PATH, "updater.log")
 
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[logging.FileHandler(LOG_FILE_PATH), logging.StreamHandler()],
+)
+
+
+# Global exception handler
+def handle_exception(exc_type, exc_value, exc_traceback):
+    if issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        return
+    logging.critical(
+        "Uncaught exception", exc_info=(exc_type, exc_value, exc_traceback)
+    )
+
+
+sys.excepthook = handle_exception
+
+# TODO: Add code which always converts the old settings file with the new settings file using templates and filling it in with the settings it currently has
 
 def get_downgrade_version(config: dict) -> str | None:
     """
@@ -25,7 +47,6 @@ def get_downgrade_version(config: dict) -> str | None:
     :return: string with the version to downgrade to or None
     """
     return config.get("downgrade_version")
-
 
 def get_latest_version(repo_url: str) -> str | None:
     """
@@ -39,7 +60,6 @@ def get_latest_version(repo_url: str) -> str | None:
         return None
 
     return response.text.strip()
-
 
 def download_and_install_version(release_url: str, filename: str) -> bool:
     """
@@ -63,7 +83,6 @@ def download_and_install_version(release_url: str, filename: str) -> bool:
         file.write(response.content)
     return True
 
-
 def kill_process(process_name: str) -> None:
     """
     Kill all processes with the given name of the executable
@@ -74,7 +93,6 @@ def kill_process(process_name: str) -> None:
         if proc.info["name"] == process_name:
             proc.kill()
 
-
 def convert_json_files(release_url: str) -> None:
     """
     Convert the local JSON files to the new JSON files
@@ -84,7 +102,7 @@ def convert_json_files(release_url: str) -> None:
     response = requests.get(release_url, allow_redirects=True)
 
     if response.status_code != 200:
-        print("Failed to download the JSON file list from the repository.")
+        logging.error("Failed to download the JSON file list from the repository.")
         return
 
     json_files = [file for file in response.json() if file.endswith(".json")]
@@ -93,7 +111,7 @@ def convert_json_files(release_url: str) -> None:
         json_response = requests.get(release_url + json_file, allow_redirects=True)
 
         if json_response.status_code != 200:
-            print(f"Failed to download {json_file} from the repository.")
+            logging.error(f"Failed to download {json_file} from the repository.")
             continue
 
         new_settings = json_response.json()
@@ -105,10 +123,10 @@ def convert_json_files(release_url: str) -> None:
             with open(local_file_path, "r") as local_file:
                 local_settings = json.load(local_file)
         except FileNotFoundError:
-            print(f"Local file {local_file_path} not found.")
+            logging.error(f"Local file {local_file_path} not found.")
             continue
         except json.JSONDecodeError:
-            print(f"Error decoding JSON from {local_file_path}.")
+            logging.error(f"Error decoding JSON from {local_file_path}.")
             continue
 
         updated_settings = {}
@@ -121,10 +139,9 @@ def convert_json_files(release_url: str) -> None:
         try:
             with open(local_file_path, "w") as local_file:
                 json.dump(updated_settings, local_file, indent=4)
-            print(f"Updated {local_file_path} successfully.")
+            logging.info(f"Updated {local_file_path} successfully.")
         except Exception as e:
-            print(f"Error writing to {local_file_path}: {e}")
-
+            logging.error(f"Error writing to {local_file_path}: {e}")
 
 def load_config() -> dict:
     """
@@ -136,8 +153,9 @@ def load_config() -> dict:
         config = json.load(file)
     return config
 
-
 def main() -> None:
+    logging.info(f"{'#'*40} Updater application has started {'#'*40}")
+
     config = load_config()
 
     repo_url = config["repo_url"]
@@ -163,10 +181,9 @@ def main() -> None:
         # Turn downgrade_version back to an empty string
         config["downgrade_version"] = ""
 
-        print("Update successful.")
+        logging.info("Update successful.")
     else:
-        print("Failed to download the new version.")
-
+        logging.error("Failed to download the new version.")
 
 if __name__ == "__main__":
     main()
