@@ -12,11 +12,7 @@ import customtkinter as ctk
 import cv2
 import numpy as np
 import requests
-from moviepy.editor import (  # Installed Pillow version 9.5, otherwise it will give an Antialiasing error when using the most current version
-    CompositeVideoClip,
-    ImageClip,
-    VideoFileClip,
-)
+from moviepy.editor import CompositeVideoClip, ImageClip, VideoFileClip
 
 global main_window  # main_window gets defined if __name__ == "__main__"
 
@@ -28,6 +24,7 @@ else:
     MAIN_PATH = os.path.abspath(os.path.dirname(__file__))
 
 SETTINGS_PATH = Path(MAIN_PATH, "settings.json")
+CONFIG_PATH = Path(MAIN_PATH, "config.json")
 
 # TODO: Write code for when the user wants to downgrade their current version of the application (v1.0)
 # TODO: Add sanitization to the text boxes where you can only input numbers (use code from Galaxy Life Notifier)
@@ -1176,6 +1173,26 @@ class MainWindow(ctk.CTk):
         with open(SETTINGS_PATH, "w") as file:
             json.dump(settings, file, indent=4)
 
+    @staticmethod
+    def load_config() -> dict:
+        """
+        Loads the config from config.json
+
+        :return: dictionary with all the config items from config.json
+        """
+        with open(CONFIG_PATH, "r") as file:
+            config = json.load(file)
+        return config
+
+
+def create_config_json():
+    default_config_json_template = {
+        "repo_url": "https://raw.githubusercontent.com/0DarkPhoenix/Add-Logo-Processor/main/",
+        "version": "v1.0",
+    }
+    with open(CONFIG_PATH, "w") as file:
+        json.dump(default_config_json_template, file, indent=4)
+
 
 def create_settings_json():
     default_settings_json_template = {
@@ -1203,19 +1220,12 @@ def create_settings_json():
         },
     }
 
-    with open(SETTINGS_PATH, "w") as file:
-        json.dump(default_settings_json_template, file, indent=4)
-
+    MainWindow.save_settings(default_settings_json_template)
     print("Created settings.json")
 
 
-def check_version():
-    def get_current_version():
-        try:
-            with open("version.txt", "r") as file:
-                return file.read().strip()
-        except FileNotFoundError:
-            return None
+def check_version() -> None:
+    """Checks if there is a new version of the program available and asks if the user wants to update."""
 
     def get_latest_version(repo_url):
         response = requests.get(repo_url + "version.txt")
@@ -1224,9 +1234,11 @@ def check_version():
         else:
             return None
 
-    repo_url = "https://raw.githubusercontent.com/0DarkPhoenix/Add-Logo-Processor/main/"  # TODO: Put the repo url in a separate file so both this script and the Updater can access it
+    config = MainWindow.load_config()
 
-    current_version = get_current_version()
+    repo_url = config["repo_url"]
+
+    current_version = config["version"]
     latest_version = get_latest_version(repo_url)
 
     if current_version is None or latest_version is None:
@@ -1246,6 +1258,9 @@ def check_version():
 
 
 if __name__ == "__main__":
+    if not os.path.exists(CONFIG_PATH):
+        create_config_json()
+
     if not os.path.exists(SETTINGS_PATH):
         create_settings_json()
 

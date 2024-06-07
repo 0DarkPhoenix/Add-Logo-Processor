@@ -1,59 +1,151 @@
+import json
 import os
+import sys
+from pathlib import Path
+from tkinter.tix import MAIN
 
 import psutil
 import requests
-from numpy import delete
 
+if getattr(sys, "frozen", False):
+    # If the application is run as a bundled executable, use the directory of the executable
+    MAIN_PATH = os.path.dirname(sys.executable)
+else:
+    # Otherwise, just use the normal directory where the script resides
+    MAIN_PATH = os.path.abspath(os.path.dirname(__file__))
+
+CONFIG_PATH = Path(MAIN_PATH, "config.json")
 # TODO: Add code which always converts the old settings file with the new settings file using templates and filling it in with the settings it currently has
 
 
-def get_current_version():
-    try:
-        with open("version.txt", "r") as file:
-            return file.read().strip()
-    except FileNotFoundError:
+def get_downgrade_version(config: dict) -> str | None:
+    """
+    Get the version of the locally installed application to downgrade to
+
+    :return: string with the version to downgrade to or None
+    """
+    return config.get("downgrade_version")
+
+
+def get_latest_version(repo_url: str) -> str | None:
+    """
+    Get the latest version of the application from the GitHub repository
+
+    :return: string with the latest version or None
+    """
+    response = requests.get(repo_url + "version.txt")
+
+    if response.status_code != 200:
         return None
 
+    return response.text.strip()
 
-def get_downgrade_version():
-    try:
-        with open("downgrade_version.txt", "r") as file:
-            return file.read().strip()
-    except FileNotFoundError:
+
+def download_and_install_version(release_url: str, filename: str) -> bool:
+    """
+    Download and install the given version of the application
+
+    :param release_url: URL to the GitHub release
+    :param filename: name of the file to download
+
+    :return: True if the download and installation was successful, False otherwise
+    """
+    response = requests.get(release_url + filename, allow_redirects=True)
+
+    if response.status_code != 200:
         return False
 
+    # Kill the main executable
+    kill_process(filename)
 
-def get_latest_version(repo_url):
-    response = requests.get(repo_url + "version.txt")
-    if response.status_code == 200:
-        return response.text.strip()
-    else:
-        return None
-
-
-def download_version(repo_url, filename):
-    response = requests.get(repo_url + filename, allow_redirects=True)
-    if response.status_code == 200:
-        with open(filename, "wb") as file:
-            file.write(response.content)
-        return True
-    return False
+    # Overwrite the old executable with the new executable
+    with open(filename, "wb") as file:
+        file.write(response.content)
+    return True
 
 
-def kill_process(process_name):
-    """Kill all processes with the given name."""
+def kill_process(process_name: str) -> None:
+    """
+    Kill all processes with the given name of the executable
+
+    :param process_name: name of the executable to kill
+    """
     for proc in psutil.process_iter(["pid", "name"]):
         if proc.info["name"] == process_name:
             proc.kill()
 
 
-def main():
-    repo_url = "https://raw.githubusercontent.com/0DarkPhoenix/Add-Logo-Processor/main/"
+def convert_json_files(release_url: str) -> None:
+    """
+    Convert the local JSON files to the new JSON files
+
+    :param release_url: URL to the GitHub release
+    """
+    response = requests.get(release_url, allow_redirects=True)
+
+    if response.status_code != 200:
+        print("Failed to download the JSON file list from the repository.")
+        return
+
+    json_files = [file for file in response.json() if file.endswith(".json")]
+
+    for json_file in json_files:
+        json_response = requests.get(release_url + json_file, allow_redirects=True)
+
+        if json_response.status_code != 200:
+            print(f"Failed to download {json_file} from the repository.")
+            continue
+
+        new_settings = json_response.json()
+        json_filename = os.path.splitext(json_file)[0]
+
+        local_file_path = os.path.join(MAIN_PATH, json_filename + ".json")
+
+        try:
+            with open(local_file_path, "r") as local_file:
+                local_settings = json.load(local_file)
+        except FileNotFoundError:
+            print(f"Local file {local_file_path} not found.")
+            continue
+        except json.JSONDecodeError:
+            print(f"Error decoding JSON from {local_file_path}.")
+            continue
+
+        updated_settings = {}
+        for key, value in new_settings.items():
+            if key in local_settings:
+                updated_settings[key] = local_settings[key]
+            else:
+                updated_settings[key] = value
+
+        try:
+            with open(local_file_path, "w") as local_file:
+                json.dump(updated_settings, local_file, indent=4)
+            print(f"Updated {local_file_path} successfully.")
+        except Exception as e:
+            print(f"Error writing to {local_file_path}: {e}")
+
+
+def load_config() -> dict:
+    """
+    Loads the config from config.json
+
+    :return: dictionary with all the config items from config.json
+    """
+    with open(CONFIG_PATH, "r") as file:
+        config = json.load(file)
+    return config
+
+
+def main() -> None:
+    config = load_config()
+
+    repo_url = config["repo_url"]
 
     version = (
         get_latest_version(repo_url)
-        if not get_downgrade_version()
-        else get_downgrade_version()
+        if not get_downgrade_version(config)
+        else get_downgrade_version(config)
     )
 
     # main executable is always located in /Release/[version]
@@ -61,13 +153,12 @@ def main():
 
     exe_filename = "Add Logo Processor.exe"
 
-    kill_process(exe_filename)
+    if download_and_install_version(releases_url, exe_filename):
+        # Convert JSON files
+        convert_json_files(releases_url)
 
-    if download_version(releases_url, exe_filename):
-
-        # Write version to version.txt
-        with open("version.txt", "w") as file:
-            file.write(version)
+        # Write version to config.json
+        config["version"] = version
 
         # If downgrade.txt exists, delete it
         try:
