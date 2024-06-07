@@ -156,34 +156,41 @@ def load_config() -> dict:
 def main() -> None:
     logging.info(f"{'#'*40} Updater application has started {'#'*40}")
 
-    config = load_config()
-
-    repo_url = config["repo_url"]
-
-    version = (
-        get_latest_version(repo_url)
-        if get_downgrade_version(config) == ""
-        else get_downgrade_version(config)
-    )
-
-    # main executable is always located in /Release/[version]
-    releases_url = repo_url + "Release" + version
-
     exe_filename = "Add Logo Processor.exe"
+    try:
+        config = load_config()
 
-    if download_and_install_version(releases_url, exe_filename):
-        # Convert JSON files
-        convert_json_files(releases_url)
+        repo_url = config["repo_url"]
 
-        # Write version to config.json
-        config["version"] = version
+        version = (
+            get_latest_version(repo_url)
+            if get_downgrade_version(config) == ""
+            else get_downgrade_version(config)
+        )
 
-        # Turn downgrade_version back to an empty string
-        config["downgrade_version"] = ""
+        # main executable is always located in /Release/[version]
+        releases_url = repo_url + "Release" + version
 
-        logging.info("Update successful.")
-    else:
-        logging.error("Failed to download the new version.")
+        if download_and_install_version(releases_url, exe_filename):
+            # Convert JSON files
+            convert_json_files(releases_url)
+
+            # Write version to config.json
+            config["version"] = version
+
+            # Turn downgrade_version back to an empty string
+            config["downgrade_version"] = ""
+
+            logging.info("Update successful.")
+
+        else:
+            logging.error("Failed to download the new version.")
+
+    except Exception as e:
+        logging.error(f"Error: {e}")
+
+    # Start the executable regardless of whether the download was successful or not
+    os.startfile(str(Path(MAIN_PATH, exe_filename)))
 
 if __name__ == "__main__":
     main()
