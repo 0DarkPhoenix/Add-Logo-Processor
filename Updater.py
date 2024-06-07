@@ -144,7 +144,7 @@ def main() -> None:
 
     version = (
         get_latest_version(repo_url)
-        if not get_downgrade_version(config)
+        if get_downgrade_version(config) == ""
         else get_downgrade_version(config)
     )
 
@@ -160,13 +160,8 @@ def main() -> None:
         # Write version to config.json
         config["version"] = version
 
-        # If downgrade.txt exists, delete it
-        try:
-            os.remove("downgrade_version.txt")
-        except FileNotFoundError:
-            pass
-        except Exception as e:
-            print(f"Error removing downgrade_version.txt: {e}")
+        # Turn downgrade_version back to an empty string
+        config["downgrade_version"] = ""
 
         print("Update successful.")
     else:

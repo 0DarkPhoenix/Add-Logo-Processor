@@ -27,7 +27,6 @@ SETTINGS_PATH = Path(MAIN_PATH, "settings.json")
 CONFIG_PATH = Path(MAIN_PATH, "config.json")
 
 # TODO: Write code for when the user wants to downgrade their current version of the application (v1.0)
-# TODO: Add sanitization to the text boxes where you can only input numbers (use code from Galaxy Life Notifier)
 
 
 class UpdateAvailableWindow(ctk.CTk):
@@ -431,6 +430,11 @@ class MainWindow(ctk.CTk):
         self.title("Image & Video Processor")
         self.geometry("1000x1000")
 
+        self.validate_numeric_input_cmd_command = (
+            self.register(self.validate_numeric_input),
+            "%P",
+        )
+
         self.create_window_elements()
         self.insert_settings()
 
@@ -504,7 +508,10 @@ class MainWindow(ctk.CTk):
         label_num_pixels.grid(row=7, column=1, columnspan=3, sticky="s")
 
         self.entry_num_pixels = ctk.CTkEntry(
-            self.images_tab, placeholder_text="Number of pixels"
+            self.images_tab,
+            placeholder_text="Number of pixels",
+            validate="key",
+            validatecommand=self.validate_numeric_input_cmd_command,
         )
         self.entry_num_pixels.grid(row=8, column=1, columnspan=3)
 
@@ -552,7 +559,10 @@ class MainWindow(ctk.CTk):
         self.label_scale_logo_image.grid(row=14, column=2, sticky="s")
 
         self.entry_scale_logo_image = ctk.CTkEntry(
-            self.images_tab, placeholder_text="Scale"
+            self.images_tab,
+            placeholder_text="Scale",
+            validate="key",
+            validatecommand=self.validate_numeric_input_cmd_command,
         )
         self.entry_scale_logo_image.grid(row=15, column=2, sticky="n")
 
@@ -611,7 +621,10 @@ class MainWindow(ctk.CTk):
         self.label_offset_width_logo_image.grid(row=12, column=3, sticky="s")
 
         self.entry_offset_width_logo_image = ctk.CTkEntry(
-            self.images_tab, placeholder_text="Width Offset"
+            self.images_tab,
+            placeholder_text="Width Offset",
+            validate="key",
+            validatecommand=self.validate_numeric_input_cmd_command,
         )
         self.entry_offset_width_logo_image.grid(row=13, column=3, sticky="n")
 
@@ -623,7 +636,10 @@ class MainWindow(ctk.CTk):
         self.label_offset_height_logo_image.grid(row=14, column=3, sticky="s")
 
         self.entry_offset_height_logo_image = ctk.CTkEntry(
-            self.images_tab, placeholder_text="Height Offset"
+            self.images_tab,
+            placeholder_text="Height Offset",
+            validate="key",
+            validatecommand=self.validate_numeric_input_cmd_command,
         )
         self.entry_offset_height_logo_image.grid(row=15, column=3, sticky="n")
 
@@ -744,7 +760,10 @@ class MainWindow(ctk.CTk):
         self.label_scale_logo_video.grid(row=12, column=2, sticky="s")
 
         self.entry_scale_logo_video = ctk.CTkEntry(
-            master=self.videos_tab, placeholder_text="Scale"
+            master=self.videos_tab,
+            placeholder_text="Scale",
+            validate="key",
+            validatecommand=self.validate_numeric_input_cmd_command,
         )
         self.entry_scale_logo_video.grid(row=13, column=2, sticky="n")
 
@@ -803,7 +822,10 @@ class MainWindow(ctk.CTk):
         self.label_offset_width_logo_video.grid(row=10, column=3, sticky="s")
 
         self.entry_offset_width_logo_video = ctk.CTkEntry(
-            master=self.videos_tab, placeholder_text="Width Offset"
+            master=self.videos_tab,
+            placeholder_text="Width Offset",
+            validate="key",
+            validatecommand=self.validate_numeric_input_cmd_command,
         )
         self.entry_offset_width_logo_video.grid(row=11, column=3, sticky="n")
 
@@ -815,7 +837,10 @@ class MainWindow(ctk.CTk):
         self.label_offset_height_logo_video.grid(row=12, column=3, sticky="s")
 
         self.entry_offset_height_logo_video = ctk.CTkEntry(
-            master=self.videos_tab, placeholder_text="Height Offset"
+            master=self.videos_tab,
+            placeholder_text="Height Offset",
+            validate="key",
+            validatecommand=self.validate_numeric_input_cmd_command,
         )
         self.entry_offset_height_logo_video.grid(row=13, column=3, sticky="n")
 
@@ -1151,6 +1176,20 @@ class MainWindow(ctk.CTk):
         self.progress_bar.pack_forget()
 
     @staticmethod
+    def validate_numeric_input(value_if_allowed):
+        if (
+            value_if_allowed.isdigit()
+            or value_if_allowed == ""
+            or value_if_allowed == "Number of pixels"
+            or value_if_allowed == "Scale"
+            or value_if_allowed == "Width offset"
+            or value_if_allowed == "Height offset"
+        ):
+            return True
+        else:
+            return False
+
+    @staticmethod
     def load_settings() -> dict:
         """
         Loads the settings from settings.json
@@ -1189,6 +1228,7 @@ def create_config_json():
     default_config_json_template = {
         "repo_url": "https://raw.githubusercontent.com/0DarkPhoenix/Add-Logo-Processor/main/",
         "version": "v1.0",
+        "downgrade_version": "",
     }
     with open(CONFIG_PATH, "w") as file:
         json.dump(default_config_json_template, file, indent=4)
@@ -1226,35 +1266,40 @@ def create_settings_json():
 
 def check_version() -> None:
     """Checks if there is a new version of the program available and asks if the user wants to update."""
+    try:
 
-    def get_latest_version(repo_url):
-        response = requests.get(repo_url + "version.txt")
-        if response.status_code == 200:
-            return response.text.strip()
+        def get_latest_version(repo_url):
+            response = requests.get(repo_url + "version.txt")
+            if response.status_code == 200:
+                return response.text.strip()
+            else:
+                return None
+
+        config = MainWindow.load_config()
+
+        repo_url = config["repo_url"]
+
+        current_version = config["version"]
+        latest_version = get_latest_version(repo_url)
+
+        if current_version is None or latest_version is None:
+            print("Failed to retrieve versions.")
+            return
+
+        print(f"Current version: {current_version}")
+        print(f"Latest version: {latest_version}")
+
+        if latest_version > current_version:
+            print(f"New version available! ({current_version} -> {latest_version})")
+            update_window = UpdateAvailableWindow()
+            update_window.run()
+            update_window.mainloop()
         else:
-            return None
+            print("You are on the most current version!")
 
-    config = MainWindow.load_config()
-
-    repo_url = config["repo_url"]
-
-    current_version = config["version"]
-    latest_version = get_latest_version(repo_url)
-
-    if current_version is None or latest_version is None:
-        print("Failed to retrieve versions.")
-        return
-
-    print(f"Current version: {current_version}")
-    print(f"Latest version: {latest_version}")
-
-    if latest_version > current_version:
-        print(f"New version available! ({current_version} -> {latest_version})")
-        update_window = UpdateAvailableWindow()
-        update_window.run()
-        update_window.mainloop()
-    else:
-        print("You are on the most current version!")
+    except:
+        print("Failed to check if a new version is available")
+        pass
 
 
 if __name__ == "__main__":
