@@ -64,7 +64,7 @@ VIDEO_SCALE_DEFAULT = 13
 VIDEO_WIDTH_OFFSET_DEFAULT = 10
 VIDEO_HEIGHT_OFFSET_DEFAULT = 15
 
-# ----------------------------------- v1.1 ----------------------------------- #
+# ----------------------------------- v1.2 ----------------------------------- #
 # TODO: Write code for when the user wants to downgrade their current version of the application
 # TODO: Add functionality to see a popup with the entire path if it exceeds a specified amount of characters, which makes it easier to read really long path names
 
@@ -112,8 +112,7 @@ class UpdateAvailableWindow(ctk.CTk):
     def update(self):
         updater_path = Path(MAIN_PATH, "Updater.exe")
         subprocess.Popen([str(updater_path)], shell=True)
-        self.close()
-        return
+        os._exit(0)
 
     def close(self):
         self.destroy()
@@ -1348,7 +1347,7 @@ def check_version() -> None:
 
 
 if __name__ == "__main__":
-    logging.info(f"{'#'*40} Add Logo Processor application has started {'#'*40}")
+    logging.info(f"{'#'*10} Add Logo Processor application has started {'#'*10}")
     if not os.path.exists(CONFIG_PATH):
         create_config_json()
 

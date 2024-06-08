@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import sys
+import time
 from pathlib import Path
 from tkinter.tix import MAIN
 
@@ -38,7 +39,6 @@ def handle_exception(exc_type, exc_value, exc_traceback):
 
 sys.excepthook = handle_exception
 
-# TODO: Add code which always converts the old settings file with the new settings file using templates and filling it in with the settings it currently has
 
 def get_downgrade_version(config: dict) -> str | None:
     """
@@ -82,13 +82,12 @@ def download_and_install_version(release_url: str, filename: str) -> bool:
 
         # Kill the main executable
         kill_process(filename)
+        time.sleep(1)
 
         # Overwrite the old executable with the new executable
         with open(filename, "wb") as file:
             file.write(response.content)
-        logging.info(
-            f"Successfully downloaded and installed {filename} from {release_url}."
-        )
+        logging.info(f"Successfully downloaded and installed {filename}")
         return True
 
     except requests.RequestException as e:
@@ -113,25 +112,23 @@ def kill_process(process_name: str) -> None:
         if proc.info["name"] == process_name:
             proc.kill()
 
+
 def convert_json_files(release_url: str) -> None:
     """
     Convert the local JSON files to the new JSON files
 
     :param release_url: URL to the GitHub release
     """
-    response = requests.get(release_url, allow_redirects=True)
-
-    if response.status_code != 200:
-        logging.error("Failed to download the JSON file list from the repository.")
-        return
-
-    json_files = [file for file in response.json() if file.endswith(".json")]
+    json_files = [file for file in os.listdir(MAIN_PATH) if file.endswith(".json")]
 
     for json_file in json_files:
-        json_response = requests.get(release_url + json_file, allow_redirects=True)
+        json_url = f"{release_url}/{json_file}"
+        json_response = requests.get(json_url, allow_redirects=True)
 
         if json_response.status_code != 200:
-            logging.error(f"Failed to download {json_file} from the repository.")
+            logging.error(
+                f"Failed to download {json_file} from the repository. URL: {json_url}"
+            )
             continue
 
         new_settings = json_response.json()
@@ -159,9 +156,10 @@ def convert_json_files(release_url: str) -> None:
         try:
             with open(local_file_path, "w") as local_file:
                 json.dump(updated_settings, local_file, indent=4)
-            logging.info(f"Updated {local_file_path} successfully.")
+            logging.info(f"Updated {json_file} successfully.")
         except Exception as e:
             logging.error(f"Error writing to {local_file_path}: {e}")
+
 
 def load_config() -> dict:
     """
@@ -172,6 +170,18 @@ def load_config() -> dict:
     with open(CONFIG_PATH, "r") as file:
         config = json.load(file)
     return config
+
+
+def save_config(config: dict) -> None:
+    """
+    Saves the config to config.json
+
+    :param config: dictionary with all the config items to save to config.json
+    """
+
+    with open(CONFIG_PATH, "w") as file:
+        json.dump(config, file, indent=4)
+
 
 def main() -> None:
     logging.info(f"{'#'*40} Updater application has started {'#'*40}")
@@ -200,6 +210,9 @@ def main() -> None:
 
             # Turn downgrade_version back to an empty string
             config["downgrade_version"] = ""
+
+            # Save the config
+            save_config(config)
 
             logging.info("Update successful.")
 
