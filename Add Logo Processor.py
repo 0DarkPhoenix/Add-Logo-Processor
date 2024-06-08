@@ -15,6 +15,8 @@ import numpy as np
 import requests
 from moviepy.editor import CompositeVideoClip, ImageClip, VideoFileClip
 
+ctk.set_appearance_mode("dark")
+
 global main_window  # main_window gets defined if __name__ == "__main__"
 
 if getattr(sys, "frozen", False):
