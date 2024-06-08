@@ -89,7 +89,7 @@ class UpdateAvailableWindow(ctk.CTk):
 
         label_versions = ctk.CTkLabel(
             self,
-            text=f"v{current_version} (Current)  →  v{latest_version}",
+            text=f"{current_version} (Current)  →  {latest_version}",
             font=("Arial", 14),
         )
         label_versions.place(relx=0.5, rely=0.4, anchor="center")
@@ -112,6 +112,7 @@ class UpdateAvailableWindow(ctk.CTk):
     def update(self):
         updater_path = Path(MAIN_PATH, "Updater.exe")
         subprocess.Popen([str(updater_path)], shell=True)
+        self.close()
         return
 
     def close(self):
@@ -1336,7 +1337,7 @@ def check_version() -> None:
                 f"New version available! ({current_version} -> {latest_version})"
             )
             update_window = UpdateAvailableWindow()
-            update_window.run()
+            update_window.run(current_version, latest_version)
             update_window.mainloop()
         else:
             logging.info("You are on the most recent version!")

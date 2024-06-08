@@ -70,18 +70,38 @@ def download_and_install_version(release_url: str, filename: str) -> bool:
 
     :return: True if the download and installation was successful, False otherwise
     """
-    response = requests.get(release_url + filename, allow_redirects=True)
+    try:
+        exe_url = f"{release_url}/{filename}"
+        response = requests.get(exe_url, allow_redirects=True)
 
-    if response.status_code != 200:
+        if response.status_code != 200:
+            logging.error(
+                f"Failed to download {filename} from {release_url}. Status code: {response.status_code}. URL: {exe_url}"
+            )
+            return False
+
+        # Kill the main executable
+        kill_process(filename)
+
+        # Overwrite the old executable with the new executable
+        with open(filename, "wb") as file:
+            file.write(response.content)
+        logging.info(
+            f"Successfully downloaded and installed {filename} from {release_url}."
+        )
+        return True
+
+    except requests.RequestException as e:
+        logging.error(
+            f"RequestException while trying to download {filename} from {release_url}: {e}"
+        )
+        return False
+    except Exception as e:
+        logging.error(
+            f"An unexpected error occurred while downloading and installing {filename}: {e}"
+        )
         return False
 
-    # Kill the main executable
-    kill_process(filename)
-
-    # Overwrite the old executable with the new executable
-    with open(filename, "wb") as file:
-        file.write(response.content)
-    return True
 
 def kill_process(process_name: str) -> None:
     """
@@ -169,7 +189,7 @@ def main() -> None:
         )
 
         # main executable is always located in /Release/[version]
-        releases_url = repo_url + "Release" + version
+        releases_url = repo_url + "Release/" + version
 
         if download_and_install_version(releases_url, exe_filename):
             # Convert JSON files

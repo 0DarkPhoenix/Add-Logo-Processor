@@ -11,3 +11,5 @@ updater.log
 Add description to image test.py
 Add Logo Processor.spec
 Updater.spec
+pyinstaller commands.txt
+zz Create New Version.py
