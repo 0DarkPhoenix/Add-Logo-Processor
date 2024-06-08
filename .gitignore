@@ -1,8 +1,11 @@
+# Ignore config.json and settings.json in the root directory
+/config.json
+/settings.json
+
+# Other existing rules
 build/
 dist/
 Test Data/
-settings.json
-config.json
 add_logo_processor.log
 updater.log
 Add description to image test.py
