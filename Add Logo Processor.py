@@ -64,9 +64,8 @@ VIDEO_SCALE_DEFAULT = 13
 VIDEO_WIDTH_OFFSET_DEFAULT = 10
 VIDEO_HEIGHT_OFFSET_DEFAULT = 15
 
-# ----------------------------------- v1.2 ----------------------------------- #
+# ----------------------------------- v1.3 ----------------------------------- #
 # TODO: Write code for when the user wants to downgrade their current version of the application
-# TODO: Add functionality to see a popup with the entire path if it exceeds a specified amount of characters, which makes it easier to read really long path names
 
 
 class UpdateAvailableWindow(ctk.CTk):
