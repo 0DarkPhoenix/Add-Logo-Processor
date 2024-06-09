@@ -1109,6 +1109,7 @@ class MainWindow(ctk.CTk):
                 self.toggle_logo_image.select()
             else:
                 self.toggle_logo_image.deselect()
+            self.toggle_logo_actions()
         except:
             pass
 

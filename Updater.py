@@ -121,9 +121,11 @@ def convert_json_files(release_url: str) -> None:
 
     :param release_url: URL to the GitHub release
     """
-    json_files = [file for file in os.listdir(MAIN_PATH) if file.endswith(".json")]
+    local_json_files = [
+        file for file in os.listdir(MAIN_PATH) if file.endswith(".json")
+    ]
 
-    for json_file in json_files:
+    for json_file in local_json_files:
         json_url = f"{release_url}/{json_file}"
         json_response = requests.get(json_url, allow_redirects=True)
 
@@ -148,11 +150,10 @@ def convert_json_files(release_url: str) -> None:
             logging.error(f"Error decoding JSON from {local_file_path}.")
             continue
 
-        updated_settings = {}
-        for key, value in new_settings.items():
-            if key in local_settings:
-                updated_settings[key] = local_settings[key]
-            else:
+        # Synchronize local settings with new settings
+        updated_settings = new_settings.copy()
+        for key, value in local_settings.items():
+            if key in new_settings:
                 updated_settings[key] = value
 
         try:
@@ -207,6 +208,7 @@ def main() -> None:
             # Convert JSON files
             convert_json_files(releases_url)
 
+            config = load_config()
             # Write version to config.json
             config["version"] = version
 
