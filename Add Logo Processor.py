@@ -1270,7 +1270,7 @@ class MainWindow(ctk.CTk):
 def create_config_json():
     default_config_json_template = {
         "repo_url": "https://raw.githubusercontent.com/0DarkPhoenix/Add-Logo-Processor/main/",
-        "version": "v1.1",
+        "version": "v1.2",
         "downgrade_version": "",
     }
     with open(CONFIG_PATH, "w") as file:
