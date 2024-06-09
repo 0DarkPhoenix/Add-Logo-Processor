@@ -4,7 +4,6 @@ import os
 import sys
 import time
 from pathlib import Path
-from tkinter.tix import MAIN
 
 import psutil
 import requests
