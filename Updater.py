@@ -4,7 +4,6 @@ import os
 import sys
 import time
 from pathlib import Path
-from tkinter.tix import MAIN
 
 import psutil
 import requests
@@ -200,6 +199,7 @@ def main() -> None:
             if get_downgrade_version(config) == ""
             else get_downgrade_version(config)
         )
+        logging.info(f"Updating from {config['version']} to {version}")
 
         # main executable is always located in /Release/[version]
         releases_url = repo_url + "Release/" + version
@@ -212,7 +212,7 @@ def main() -> None:
             # Write version to config.json
             config["version"] = version
 
-            # Turn downgrade_version back to an empty string
+            # Change downgrade_version back to an empty string
             config["downgrade_version"] = ""
 
             # Save the config
