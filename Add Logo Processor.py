@@ -1109,14 +1109,18 @@ class MainWindow(ctk.CTk):
                 self.toggle_logo_image.select()
             else:
                 self.toggle_logo_image.deselect()
+
+            self.entry_logo_image.insert(0, images_settings["logo_image_path"])
+            self.entry_scale_logo_image.insert(0, images_settings["scale"])
+            self.entry_offset_width_logo_image.insert(
+                0, images_settings["width_offset"]
+            )
+            self.entry_offset_height_logo_image.insert(
+                0, images_settings["height_offset"]
+            )
             self.toggle_logo_actions()
         except:
             pass
-
-        self.entry_logo_image.insert(0, images_settings["logo_image_path"])
-        self.entry_scale_logo_image.insert(0, images_settings["scale"])
-        self.entry_offset_width_logo_image.insert(0, images_settings["width_offset"])
-        self.entry_offset_height_logo_image.insert(0, images_settings["height_offset"])
 
         match images_settings["logo_corner"]:
             case "Top Left":
@@ -1133,14 +1137,11 @@ class MainWindow(ctk.CTk):
                 self.switch_convert_images_to_format.select()
             else:
                 self.switch_convert_images_to_format.deselect()
+
+            self.combobox_convert_images_format.set(images_settings["format"])
             self.switch_convert_images_to_format_actions()
         except:
             pass
-
-        self.combobox_convert_images_format.configure(state="readonly")
-        self.combobox_convert_images_format.set(images_settings["format"])
-        if not images_settings["convert_to_format"]:
-            self.combobox_convert_images_format.configure(state="disabled")
 
         # Video Processor
         self.entry_input_video.insert(0, videos_settings["input_folder_path"])
