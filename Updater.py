@@ -71,6 +71,7 @@ def download_and_install_version(release_url: str, filename: str) -> bool:
     :return: True if the download and installation was successful, False otherwise
     """
     try:
+        logging.info(f"Downloading {filename}...")
         exe_url = f"{release_url}/{filename}"
         response = requests.get(exe_url, allow_redirects=True)
 
@@ -80,9 +81,10 @@ def download_and_install_version(release_url: str, filename: str) -> bool:
             )
             return False
 
+        logging.info(f"Installing {filename}...")
         # Kill the main executable
         kill_process(filename)
-        time.sleep(1)
+        time.sleep(0.5)
 
         # Overwrite the old executable with the new executable
         with open(filename, "wb") as file:
@@ -184,7 +186,7 @@ def save_config(config: dict) -> None:
 
 
 def main() -> None:
-    logging.info(f"{'#'*40} Updater application has started {'#'*40}")
+    logging.info(f"{'#'*10} Updater application has started {'#'*10}")
 
     exe_filename = "Add Logo Processor.exe"
     try:
