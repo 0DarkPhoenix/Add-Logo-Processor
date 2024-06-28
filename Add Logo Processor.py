@@ -14,6 +14,7 @@ import cv2
 import numpy as np
 import requests
 from moviepy.editor import CompositeVideoClip, ImageClip, VideoFileClip
+from PIL import Image
 
 ctk.set_appearance_mode("dark")
 
@@ -43,9 +44,7 @@ def handle_exception(exc_type, exc_value, exc_traceback):
     if issubclass(exc_type, KeyboardInterrupt):
         sys.__excepthook__(exc_type, exc_value, exc_traceback)
         return
-    logging.critical(
-        "Uncaught exception", exc_info=(exc_type, exc_value, exc_traceback)
-    )
+    logging.critical("Uncaught exception", exc_info=(exc_type, exc_value, exc_traceback))
 
 
 sys.excepthook = handle_exception
@@ -59,7 +58,7 @@ DEFAULT_GRAY = "#737373"
 SCALE_DEFAULT = 10
 OFFSET_DEFAULT = 10
 LOGO_CORNER_DEFAULT = "Bottom Left"
-IMAGE_FORMATS = ["png", "jpg"]
+IMAGE_FORMATS = ["png", "jpg", "webp"]
 VIDEO_SCALE_DEFAULT = 13
 VIDEO_WIDTH_OFFSET_DEFAULT = 10
 VIDEO_HEIGHT_OFFSET_DEFAULT = 15
@@ -81,9 +80,7 @@ class UpdateAvailableWindow(ctk.CTk):
         self.create_window_elements(current_version, latest_version)
 
     def create_window_elements(self, current_version: float, latest_version: float):
-        label_title = ctk.CTkLabel(
-            self, text="A new version is available!", font=("Arial", 22)
-        )
+        label_title = ctk.CTkLabel(self, text="A new version is available!", font=("Arial", 22))
         label_title.place(relx=0.5, rely=0.2, anchor="center")
 
         label_versions = ctk.CTkLabel(
@@ -93,19 +90,13 @@ class UpdateAvailableWindow(ctk.CTk):
         )
         label_versions.place(relx=0.5, rely=0.4, anchor="center")
 
-        label_update_question = ctk.CTkLabel(
-            self, text="Would you like to update?", font=("Arial", 14)
-        )
+        label_update_question = ctk.CTkLabel(self, text="Would you like to update?", font=("Arial", 14))
         label_update_question.place(relx=0.5, rely=0.6, anchor="center")
 
-        button_yes = ctk.CTkButton(
-            self, text="Yes", command=self.update, font=("Arial", 14)
-        )
+        button_yes = ctk.CTkButton(self, text="Yes", command=self.update, font=("Arial", 14))
         button_yes.place(relx=0.3, rely=0.8, anchor="center")
 
-        button_no = ctk.CTkButton(
-            self, text="No", command=self.close, font=("Arial", 14)
-        )
+        button_no = ctk.CTkButton(self, text="No", command=self.close, font=("Arial", 14))
         button_no.place(relx=0.7, rely=0.8, anchor="center")
 
     def update(self):
@@ -118,6 +109,10 @@ class UpdateAvailableWindow(ctk.CTk):
 
 
 class ImageProcessor:
+    @staticmethod
+    def save_image_as_webp(output_file, img, quality=80):
+        image = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+        image.save(output_file, format="webp", quality=quality)
 
     @staticmethod
     def add_logo_operation(
@@ -138,14 +133,10 @@ class ImageProcessor:
 
         if width < height:
             logo_height = new_height * scale_factor
-            logo_width = (
-                logo_height * logo_aspectratio if logo_aspectratio != 1 else logo_height
-            )
+            logo_width = logo_height * logo_aspectratio if logo_aspectratio != 1 else logo_height
         else:
             logo_width = new_width * scale_factor
-            logo_height = (
-                logo_width / logo_aspectratio if logo_aspectratio != 1 else logo_width
-            )
+            logo_height = logo_width / logo_aspectratio if logo_aspectratio != 1 else logo_width
 
         logo_img = cv2.resize(logo_img, (int(logo_width), int(logo_height)))
 
@@ -160,16 +151,13 @@ class ImageProcessor:
             case "Top Left":
                 position = int(0 + offset_logo_width), int(0 + offset_logo_height)
             case "Top Right":
-                position = int(new_width - logo_width - offset_logo_width), int(
-                    0 + offset_logo_height
-                )
+                position = int(new_width - logo_width - offset_logo_width), int(0 + offset_logo_height)
             case "Bottom Left":
-                position = int(0 + offset_logo_width), int(
-                    new_height - logo_height - offset_logo_height
-                )
+                position = int(0 + offset_logo_width), int(new_height - logo_height - offset_logo_height)
             case "Bottom Right":
-                position = int(new_width - logo_width - offset_logo_width), int(
-                    new_height - logo_height - offset_logo_height
+                position = (
+                    int(new_width - logo_width - offset_logo_width),
+                    int(new_height - logo_height - offset_logo_height),
                 )
 
         x_offset, y_offset = position
@@ -180,9 +168,7 @@ class ImageProcessor:
         alpha_l = 1.0 - alpha_s
 
         for c in range(0, 3):
-            img[y1:y2, x1:x2, c] = (
-                alpha_s * logo_img[:, :, c] + alpha_l * img[y1:y2, x1:x2, c]
-            )
+            img[y1:y2, x1:x2, c] = alpha_s * logo_img[:, :, c] + alpha_l * img[y1:y2, x1:x2, c]
 
     @staticmethod
     def resize_image_operation(
@@ -200,10 +186,10 @@ class ImageProcessor:
         convert_to_format: bool,
         format: str,
     ):
+        output_file = Path(output_folder_path, file)
+
         if convert_to_format:
             output_file = Path(output_folder_path, file).with_suffix(f".{format}")
-        else:
-            output_file = Path(output_folder_path, file)
 
         if not output_file.exists() or overwrite_output_images:
             # Open the input image
@@ -234,7 +220,10 @@ class ImageProcessor:
                     offset_logo_height,
                 )
 
-            cv2.imwrite(str(output_file), img)
+            if format == "webp":
+                ImageProcessor.save_image_as_webp(str(output_file), img)
+            else:
+                cv2.imwrite(str(output_file), img)
 
     @staticmethod
     def resize_images(
@@ -253,7 +242,8 @@ class ImageProcessor:
     ):
         start_time = time.time()
 
-        # Check if the min_pixels value hasn't changed since the last resize operation, otherwise it will overwrite all images in the output folder
+        # Check if the min_pixels value hasn't changed since the last resize operation, otherwise it will overwrite all
+        # images in the output folder
         try:
             settings = MainWindow.load_settings()
             settings_image_processor = settings["image_processor"]
@@ -297,7 +287,7 @@ class ImageProcessor:
         # Resize images in parallel
         with ThreadPoolExecutor() as executor:
             futures = []
-            for i, file in enumerate(files, start=1):
+            for file in files:
                 future = executor.submit(
                     ImageProcessor.resize_image_operation,
                     input_folder_path,
@@ -316,10 +306,10 @@ class ImageProcessor:
                 )
                 futures.append(future)
 
-            for i, future in enumerate(as_completed(futures), start=1):
+            for future in as_completed(futures):
                 future.result()  # Wait for the resize_image operation to complete
                 MainWindow.update_progress_bar_image_processor(
-                    main_window, total_files, i
+                    main_window, total_files, len(futures) - len(as_completed(futures))
                 )
 
         end_time = time.time()
@@ -329,7 +319,6 @@ class ImageProcessor:
 
 
 class VideoProcessor:
-
     @staticmethod
     def add_logo_to_video_operation(
         input_folder_path: Path,
@@ -386,13 +375,12 @@ class VideoProcessor:
                     )
 
             # Overlay the logo on the video clip
-            video_clip = CompositeVideoClip(
-                [video_clip, logo_clip.set_position(position)]
-            )
+            video_clip = CompositeVideoClip([video_clip, logo_clip.set_position(position)])
 
             # Set the output path and save the modified video clip
             video_clip.write_videofile(str(output_file), codec="libx264")
 
+    @staticmethod
     def add_logo_to_video(
         input_folder_path: Path,
         output_folder_path: Path,
@@ -405,9 +393,7 @@ class VideoProcessor:
     ):
         start_time = time.time()
 
-        files = sorted(
-            os.scandir(input_folder_path), key=lambda f: f.stat().st_size, reverse=True
-        )
+        files = sorted(os.scandir(input_folder_path), key=lambda f: f.stat().st_size, reverse=True)
 
         try:
             settings = MainWindow.load_settings()
@@ -434,7 +420,7 @@ class VideoProcessor:
         # Add logo to video in parallel
         with ThreadPoolExecutor() as executor:
             futures = []
-            for i, file in enumerate(files, start=1):
+            for file in files:
                 future = executor.submit(
                     VideoProcessor.add_logo_to_video_operation,
                     input_folder_path,
@@ -449,10 +435,10 @@ class VideoProcessor:
                 )
                 futures.append(future)
 
-            for i, future in enumerate(as_completed(futures), start=1):
+            for future in as_completed(futures):
                 future.result()  # Wait for the resize_image operation to complete
                 MainWindow.update_progress_bar_video_processor(
-                    main_window, total_files, i
+                    main_window, total_files, len(futures) - len(as_completed(futures))
                 )
 
         end_time = time.time()
@@ -478,9 +464,7 @@ class MainWindow(ctk.CTk):
         self.insert_settings()
 
     def create_window_elements(self):
-        main_title = ctk.CTkLabel(
-            self, text="Image & Video Processor", font=("Arial", 28)
-        )
+        main_title = ctk.CTkLabel(self, text="Image & Video Processor", font=("Arial", 28))
         main_title.place(relx=0.5, rely=0.03, anchor="center")
 
         # Tabs
@@ -503,14 +487,10 @@ class MainWindow(ctk.CTk):
             self.images_tab.rowconfigure(i, weight=1)
 
         # Input folder
-        label_input = ctk.CTkLabel(
-            self.images_tab, text="Input Folder", font=("Arial", 14)
-        )
+        label_input = ctk.CTkLabel(self.images_tab, text="Input Folder", font=("Arial", 14))
         label_input.grid(row=1, column=1, columnspan=3, sticky="s")
 
-        self.entry_input_image = ctk.CTkEntry(
-            self.images_tab, placeholder_text="Path of input folder", width=850
-        )
+        self.entry_input_image = ctk.CTkEntry(self.images_tab, placeholder_text="Path of input folder", width=850)
         self.entry_input_image.grid(row=2, column=1, columnspan=3)
 
         self.browse_button_input = ctk.CTkButton(
@@ -521,14 +501,10 @@ class MainWindow(ctk.CTk):
         self.browse_button_input.grid(row=3, column=1, columnspan=3, sticky="n")
 
         # Output folder
-        label_output = ctk.CTkLabel(
-            self.images_tab, text="Output Folder", font=("Arial", 14)
-        )
+        label_output = ctk.CTkLabel(self.images_tab, text="Output Folder", font=("Arial", 14))
         label_output.grid(row=4, column=1, columnspan=3, sticky="s")
 
-        self.entry_output_image = ctk.CTkEntry(
-            self.images_tab, placeholder_text="Path of output folder", width=850
-        )
+        self.entry_output_image = ctk.CTkEntry(self.images_tab, placeholder_text="Path of output folder", width=850)
         self.entry_output_image.grid(row=5, column=1, columnspan=3)
 
         browse_button_output = ctk.CTkButton(
@@ -559,9 +535,7 @@ class MainWindow(ctk.CTk):
             self.images_tab,
             fg_color="transparent",
         )
-        self.frame_logo_image.grid(
-            row=10, rowspan=6, column=1, columnspan=3, sticky="nsew"
-        )
+        self.frame_logo_image.grid(row=10, rowspan=6, column=1, columnspan=3, sticky="nsew")
 
         self.toggle_logo_image = ctk.CTkSwitch(
             self.images_tab,
@@ -571,14 +545,10 @@ class MainWindow(ctk.CTk):
         )
         self.toggle_logo_image.grid(row=10, column=1, columnspan=3)
 
-        self.label_logo_image = ctk.CTkLabel(
-            self.images_tab, text="Path to Logo Image", font=("Arial", 14)
-        )
+        self.label_logo_image = ctk.CTkLabel(self.images_tab, text="Path to Logo Image", font=("Arial", 14))
         self.label_logo_image.grid(row=11, column=2, sticky="s")
 
-        self.entry_logo_image = ctk.CTkEntry(
-            self.images_tab, placeholder_text="Path to Logo Image"
-        )
+        self.entry_logo_image = ctk.CTkEntry(self.images_tab, placeholder_text="Path to Logo Image")
         self.entry_logo_image.grid(row=12, column=2, sticky="ew")
 
         self.browse_button_logo_image = ctk.CTkButton(
@@ -604,9 +574,7 @@ class MainWindow(ctk.CTk):
         self.entry_scale_logo_image.grid(row=15, column=2, sticky="n")
 
         # Logo corner selection
-        self.label_corner_selection_image = ctk.CTkLabel(
-            self.images_tab, text="Corner Selection", font=("Arial", 14)
-        )
+        self.label_corner_selection_image = ctk.CTkLabel(self.images_tab, text="Corner Selection", font=("Arial", 14))
         self.label_corner_selection_image.grid(row=10, column=3, sticky="s")
 
         self.images_tab_cornerselection = ctk.CTkFrame(self.images_tab)
@@ -697,9 +665,7 @@ class MainWindow(ctk.CTk):
             text_color=DEFAULT_GRAY,
             command=self.switch_convert_images_to_format_actions,
         )
-        self.switch_convert_images_to_format.grid(
-            row=16, column=1, columnspan=3, sticky="s"
-        )
+        self.switch_convert_images_to_format.grid(row=16, column=1, columnspan=3, sticky="s")
 
         # Overwrite output images
         self.checkbox_overwrite_image = ctk.CTkCheckBox(
@@ -731,9 +697,7 @@ class MainWindow(ctk.CTk):
             self.videos_tab.rowconfigure(i, weight=1)
 
         # Input folder
-        label_input = ctk.CTkLabel(
-            master=self.videos_tab, text="Input Folder", font=("Arial", 14)
-        )
+        label_input = ctk.CTkLabel(master=self.videos_tab, text="Input Folder", font=("Arial", 14))
         label_input.grid(row=1, column=1, columnspan=3, sticky="s")
 
         self.entry_input_video = ctk.CTkEntry(
@@ -749,9 +713,7 @@ class MainWindow(ctk.CTk):
         self.browse_button_input.grid(row=3, column=1, columnspan=3, sticky="n")
 
         # Output folder
-        label_output = ctk.CTkLabel(
-            master=self.videos_tab, text="Output Folder", font=("Arial", 14)
-        )
+        label_output = ctk.CTkLabel(master=self.videos_tab, text="Output Folder", font=("Arial", 14))
         label_output.grid(row=4, column=1, columnspan=3, sticky="s")
 
         self.entry_output_video = ctk.CTkEntry(
@@ -767,19 +729,13 @@ class MainWindow(ctk.CTk):
         browse_button_output.grid(row=6, column=1, columnspan=3, sticky="n")
 
         # Logo image
-        label_logo_title_video = ctk.CTkLabel(
-            master=self.videos_tab, text="Logo parameters", font=("Arial", 20)
-        )
+        label_logo_title_video = ctk.CTkLabel(master=self.videos_tab, text="Logo parameters", font=("Arial", 20))
         label_logo_title_video.grid(row=8, column=1, columnspan=3)
 
-        self.label_logo_video = ctk.CTkLabel(
-            master=self.videos_tab, text="Path to Logo Image", font=("Arial", 14)
-        )
+        self.label_logo_video = ctk.CTkLabel(master=self.videos_tab, text="Path to Logo Image", font=("Arial", 14))
         self.label_logo_video.grid(row=9, column=2, sticky="s")
 
-        self.entry_logo_video = ctk.CTkEntry(
-            master=self.videos_tab, placeholder_text="Path to Logo Image"
-        )
+        self.entry_logo_video = ctk.CTkEntry(master=self.videos_tab, placeholder_text="Path to Logo Image")
         self.entry_logo_video.grid(row=10, column=2, sticky="ew")
 
         self.browse_button_logo_video = ctk.CTkButton(
@@ -938,44 +894,32 @@ class MainWindow(ctk.CTk):
             self.entry_logo_image.configure(state="normal", text_color=DEFAULT_WHITE)
             self.browse_button_logo_image.configure(state="normal")
             self.label_scale_logo_image.configure(text_color=DEFAULT_WHITE)
-            self.entry_scale_logo_image.configure(
-                state="normal", text_color=DEFAULT_WHITE
-            )
+            self.entry_scale_logo_image.configure(state="normal", text_color=DEFAULT_WHITE)
             self.label_corner_selection_image.configure(text_color=DEFAULT_WHITE)
             self.radiobutton_bottomleft_image.configure(state="normal")
             self.radiobutton_bottomright_image.configure(state="normal")
             self.radiobutton_topleft_image.configure(state="normal")
             self.radiobutton_topright_image.configure(state="normal")
             self.label_offset_width_logo_image.configure(text_color=DEFAULT_WHITE)
-            self.entry_offset_width_logo_image.configure(
-                state="normal", text_color=DEFAULT_WHITE
-            )
+            self.entry_offset_width_logo_image.configure(state="normal", text_color=DEFAULT_WHITE)
             self.label_offset_height_logo_image.configure(text_color=DEFAULT_WHITE)
-            self.entry_offset_height_logo_image.configure(
-                state="normal", text_color=DEFAULT_WHITE
-            )
+            self.entry_offset_height_logo_image.configure(state="normal", text_color=DEFAULT_WHITE)
         else:
             self.toggle_logo_image.configure(text_color=DEFAULT_GRAY)
             self.label_logo_image.configure(text_color=DEFAULT_GRAY)
             self.entry_logo_image.configure(state="disabled", text_color=DEFAULT_GRAY)
             self.browse_button_logo_image.configure(state="disabled")
             self.label_scale_logo_image.configure(text_color=DEFAULT_GRAY)
-            self.entry_scale_logo_image.configure(
-                state="disabled", text_color=DEFAULT_GRAY
-            )
+            self.entry_scale_logo_image.configure(state="disabled", text_color=DEFAULT_GRAY)
             self.label_corner_selection_image.configure(text_color=DEFAULT_GRAY)
             self.radiobutton_bottomleft_image.configure(state="disabled")
             self.radiobutton_bottomright_image.configure(state="disabled")
             self.radiobutton_topleft_image.configure(state="disabled")
             self.radiobutton_topright_image.configure(state="disabled")
             self.label_offset_width_logo_image.configure(text_color=DEFAULT_GRAY)
-            self.entry_offset_width_logo_image.configure(
-                state="disabled", text_color=DEFAULT_GRAY
-            )
+            self.entry_offset_width_logo_image.configure(state="disabled", text_color=DEFAULT_GRAY)
             self.label_offset_height_logo_image.configure(text_color=DEFAULT_GRAY)
-            self.entry_offset_height_logo_image.configure(
-                state="disabled", text_color=DEFAULT_GRAY
-            )
+            self.entry_offset_height_logo_image.configure(state="disabled", text_color=DEFAULT_GRAY)
 
     def switch_convert_images_to_format_actions(self):
         if self.switch_convert_images_to_format.get() == 1:
@@ -997,9 +941,7 @@ class MainWindow(ctk.CTk):
             messagebox.showerror("Error", "Invalid path for output folder")
             return
         if not logo_image.is_file():
-            messagebox.showerror(
-                "Error", "Invalid path for logo image: No file recognized"
-            )
+            messagebox.showerror("Error", "Invalid path for logo image: No file recognized")
             return
         try:
             scale_value = int(self.entry_scale_logo_image.get())
@@ -1028,9 +970,7 @@ class MainWindow(ctk.CTk):
         overwrite_output_images = self.checkbox_overwrite_image.get()
         add_logo = True if self.toggle_logo_image.get() == 1 else False
         selected_corner = self.selected_corner_image.get()
-        convert_to_format = (
-            True if self.switch_convert_images_to_format.get() == 1 else False
-        )
+        convert_to_format = True if self.switch_convert_images_to_format.get() == 1 else False
         format = self.combobox_convert_images_format.get()
 
         ImageProcessor.resize_images(
@@ -1060,9 +1000,7 @@ class MainWindow(ctk.CTk):
             messagebox.showerror("Error", "Invalid path for output folder")
             return
         if not logo_path.is_file():
-            messagebox.showerror(
-                "Error", "Invalid path for logo image: No file recognized"
-            )
+            messagebox.showerror("Error", "Invalid path for logo image: No file recognized")
             return
         try:
             scale_value = int(self.entry_scale_logo_video.get())
@@ -1098,28 +1036,23 @@ class MainWindow(ctk.CTk):
         images_settings = settings["image_processor"]
         videos_settings = settings["video_processor"]
 
-        # Image Processor
+        self._insert_image_settings(images_settings)
+        self._insert_video_settings(videos_settings)
+
+    def _insert_image_settings(self, images_settings):
         self.entry_input_image.insert(0, images_settings["input_folder_path"])
         self.entry_output_image.insert(0, images_settings["output_folder_path"])
         self.entry_num_pixels.insert(0, images_settings["number_pixels"])
 
         try:
-            if images_settings["add_logo"]:
-                self.toggle_logo_image.select()
-            else:
-                self.toggle_logo_image.deselect()
-
+            self.toggle_logo_image.select() if images_settings["add_logo"] else self.toggle_logo_image.deselect()
             self.entry_logo_image.insert(0, images_settings["logo_image_path"])
             self.entry_scale_logo_image.insert(0, images_settings["scale"])
-            self.entry_offset_width_logo_image.insert(
-                0, images_settings["width_offset"]
-            )
-            self.entry_offset_height_logo_image.insert(
-                0, images_settings["height_offset"]
-            )
+            self.entry_offset_width_logo_image.insert(0, images_settings["width_offset"])
+            self.entry_offset_height_logo_image.insert(0, images_settings["height_offset"])
             self.toggle_logo_actions()
-        except:
-            pass
+        except Exception as e:
+            print(f"Error: {e}")
 
         match images_settings["logo_corner"]:
             case "Top Left":
@@ -1132,17 +1065,15 @@ class MainWindow(ctk.CTk):
                 self.radiobutton_bottomright_image.select()
 
         try:
-            if images_settings["convert_to_format"]:
-                self.switch_convert_images_to_format.select()
-            else:
-                self.switch_convert_images_to_format.deselect()
-
+            self.switch_convert_images_to_format.select() if images_settings[
+                "convert_to_format"
+            ] else self.switch_convert_images_to_format.deselect()
             self.combobox_convert_images_format.set(images_settings["format"])
             self.switch_convert_images_to_format_actions()
-        except:
-            pass
+        except Exception as e:
+            print(f"Error: {e}")
 
-        # Video Processor
+    def _insert_video_settings(self, videos_settings):
         self.entry_input_video.insert(0, videos_settings["input_folder_path"])
         self.entry_output_video.insert(0, videos_settings["output_folder_path"])
         self.entry_logo_video.insert(0, videos_settings["logo_image_path"])
@@ -1163,14 +1094,10 @@ class MainWindow(ctk.CTk):
     def create_progress_bar_image_processor(self, total_files: int):
         self.percent = ctk.StringVar()
 
-        label_percent = ctk.CTkLabel(
-            master=self.images_tab, textvariable=self.percent, font=("Arial", 15)
-        )
+        label_percent = ctk.CTkLabel(master=self.images_tab, textvariable=self.percent, font=("Arial", 15))
         label_percent.grid(row=22, column=1, columnspan=3, sticky="s")
 
-        self.progress_bar = ttk.Progressbar(
-            master=self.images_tab, orient="horizontal", length=400, mode="determinate"
-        )
+        self.progress_bar = ttk.Progressbar(master=self.images_tab, orient="horizontal", length=400, mode="determinate")
         self.progress_bar.grid(row=23, column=1, columnspan=3, sticky="ew")
 
         self.progress_bar["maximum"] = total_files
@@ -1178,9 +1105,7 @@ class MainWindow(ctk.CTk):
 
     def update_progress_bar_image_processor(self, total_files: int, i: int):
         self.progress_bar["value"] = i
-        self.percent.set(
-            f"{i}/{total_files} images processed ({int((i/total_files)*100)}%)"
-        )
+        self.percent.set(f"{i}/{total_files} images processed ({int((i/total_files)*100)}%)")
         self.images_tab.update()
 
     def finish_progress_bar_image_processor(self, execution_time: float):
@@ -1191,14 +1116,10 @@ class MainWindow(ctk.CTk):
     def create_progress_bar_video_processor(self, total_files: int):
         self.percent = ctk.StringVar()
 
-        label_percent = ctk.CTkLabel(
-            master=self.videos_tab, textvariable=self.percent, font=("Arial", 15)
-        )
+        label_percent = ctk.CTkLabel(master=self.videos_tab, textvariable=self.percent, font=("Arial", 15))
         label_percent.grid(row=20, column=1, columnspan=3, sticky="s")
 
-        self.progress_bar = ttk.Progressbar(
-            master=self.videos_tab, orient="horizontal", length=400, mode="determinate"
-        )
+        self.progress_bar = ttk.Progressbar(master=self.videos_tab, orient="horizontal", length=400, mode="determinate")
         self.progress_bar.grid(row=21, column=1, columnspan=3, sticky="ew")
 
         self.progress_bar["maximum"] = total_files
@@ -1333,9 +1254,7 @@ def check_version() -> None:
         logging.info(f"Latest version: {latest_version}")
 
         if latest_version > current_version:
-            logging.info(
-                f"New version available! ({current_version} -> {latest_version})"
-            )
+            logging.info(f"New version available! ({current_version} -> {latest_version})")
             update_window = UpdateAvailableWindow()
             update_window.run(current_version, latest_version)
             update_window.mainloop()
