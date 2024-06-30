@@ -28,30 +28,45 @@ logging.basicConfig(
 
 # Global exception handler
 def handle_exception(exc_type, exc_value, exc_traceback):
+    """Handle uncaught exceptions and log them.
+
+    Args:
+        exc_type (type): Exception type.
+        exc_value (Exception): Exception value.
+        exc_traceback (traceback): Exception traceback.
+
+    """
     if issubclass(exc_type, KeyboardInterrupt):
         sys.__excepthook__(exc_type, exc_value, exc_traceback)
         return
-    logging.critical(
-        "Uncaught exception", exc_info=(exc_type, exc_value, exc_traceback)
-    )
+    logging.critical("Uncaught exception", exc_info=(exc_type, exc_value, exc_traceback))
 
 
 sys.excepthook = handle_exception
 
 
 def get_downgrade_version(config: dict) -> str | None:
-    """
-    Get the version of the locally installed application to downgrade to
+    """Get the version of the locally installed application to downgrade to.
 
-    :return: string with the version to downgrade to or None
+    Args:
+        config (dict): Dictionary containing configuration settings.
+
+    Returns:
+        str | None: String with the version to downgrade to or None.
+
     """
     return config.get("downgrade_version")
 
-def get_latest_version(repo_url: str) -> str | None:
-    """
-    Get the latest version of the application from the GitHub repository
 
-    :return: string with the latest version or None
+def get_latest_version(repo_url: str) -> str | None:
+    """Get the latest version of the application from the GitHub repository.
+
+    Args:
+        repo_url (str): URL of the GitHub repository.
+
+    Returns:
+        str | None: String with the latest version or None.
+
     """
     response = requests.get(repo_url + "version.txt")
 
@@ -60,14 +75,17 @@ def get_latest_version(repo_url: str) -> str | None:
 
     return response.text.strip()
 
+
 def download_and_install_version(release_url: str, filename: str) -> bool:
-    """
-    Download and install the given version of the application
+    """Download and install the given version of the application.
 
-    :param release_url: URL to the GitHub release
-    :param filename: name of the file to download
+    Args:
+        release_url (str): URL to the GitHub release.
+        filename (str): Name of the file to download.
 
-    :return: True if the download and installation was successful, False otherwise
+    Returns:
+        bool: True if the download and installation was successful, False otherwise.
+
     """
     try:
         logging.info(f"Downloading {filename}...")
@@ -92,22 +110,19 @@ def download_and_install_version(release_url: str, filename: str) -> bool:
         return True
 
     except requests.RequestException as e:
-        logging.error(
-            f"RequestException while trying to download {filename} from {release_url}: {e}"
-        )
+        logging.error(f"RequestException while trying to download {filename} from {release_url}: {e}")
         return False
     except Exception as e:
-        logging.error(
-            f"An unexpected error occurred while downloading and installing {filename}: {e}"
-        )
+        logging.error(f"An unexpected error occurred while downloading and installing {filename}: {e}")
         return False
 
 
 def kill_process(process_name: str) -> None:
-    """
-    Kill all processes with the given name of the executable
+    """Kill all processes with the given name of the executable.
 
-    :param process_name: name of the executable to kill
+    Args:
+        process_name (str): Name of the executable to kill.
+
     """
     for proc in psutil.process_iter(["pid", "name"]):
         if proc.info["name"] == process_name:
@@ -115,23 +130,20 @@ def kill_process(process_name: str) -> None:
 
 
 def convert_json_files(release_url: str) -> None:
-    """
-    Convert the local JSON files to the new JSON files
+    """Convert the local JSON files to the new JSON files.
 
-    :param release_url: URL to the GitHub release
+    Args:
+        release_url (str): URL to the GitHub release.
+
     """
-    local_json_files = [
-        file for file in os.listdir(MAIN_PATH) if file.endswith(".json")
-    ]
+    local_json_files = [file for file in os.listdir(MAIN_PATH) if file.endswith(".json")]
 
     for json_file in local_json_files:
         json_url = f"{release_url}/{json_file}"
         json_response = requests.get(json_url, allow_redirects=True)
 
         if json_response.status_code != 200:
-            logging.error(
-                f"Failed to download {json_file} from the repository. URL: {json_url}"
-            )
+            logging.error(f"Failed to download {json_file} from the repository. URL: {json_url}")
             continue
 
         new_settings = json_response.json()
@@ -164,10 +176,11 @@ def convert_json_files(release_url: str) -> None:
 
 
 def load_config() -> dict:
-    """
-    Loads the config from config.json
+    """Load the config from config.json.
 
-    :return: dictionary with all the config items from config.json
+    Returns
+        dict: Dictionary with all the config items from config.json.
+
     """
     with open(CONFIG_PATH, "r") as file:
         config = json.load(file)
@@ -175,17 +188,18 @@ def load_config() -> dict:
 
 
 def save_config(config: dict) -> None:
-    """
-    Saves the config to config.json
+    """Save the config to config.json.
 
-    :param config: dictionary with all the config items to save to config.json
-    """
+    Args:
+        config (dict): Dictionary with all the config items to save to config.json.
 
+    """
     with open(CONFIG_PATH, "w") as file:
         json.dump(config, file, indent=4)
 
 
 def main() -> None:
+    """Handle the update process."""
     logging.info(f"{'#'*10} Updater application has started {'#'*10}")
 
     exe_filename = "Add Logo Processor.exe"
@@ -194,11 +208,7 @@ def main() -> None:
 
         repo_url = config["repo_url"]
 
-        version = (
-            get_latest_version(repo_url)
-            if get_downgrade_version(config) == ""
-            else get_downgrade_version(config)
-        )
+        version = get_latest_version(repo_url) if get_downgrade_version(config) == "" else get_downgrade_version(config)
         logging.info(f"Updating from {config['version']} to {version}")
 
         # main executable is always located in /Release/[version]
@@ -228,6 +238,7 @@ def main() -> None:
 
     # Start the executable regardless of whether the download was successful or not
     os.startfile(str(Path(MAIN_PATH, exe_filename)))
+
 
 if __name__ == "__main__":
     main()
