@@ -1,0 +1,24 @@
+{
+    "image_processor": {
+        "input_folder_path": "",
+        "output_folder_path": "",
+        "number_pixels": "",
+        "add_logo": false,
+        "logo_image_path": "",
+        "scale": "10",
+        "width_offset": "10",
+        "height_offset": "10",
+        "logo_corner": "Bottom Left",
+        "convert_to_format": false,
+        "format": "png"
+    },
+    "video_processor": {
+        "input_folder_path": "",
+        "output_folder_path": "",
+        "logo_image_path": "",
+        "scale": "13",
+        "width_offset": "10",
+        "height_offset": "15",
+        "logo_corner": "Bottom Left"
+    }
+}
