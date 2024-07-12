@@ -14,14 +14,30 @@ from tkinter import filedialog, messagebox, ttk
 from typing import Optional
 
 import aiohttp
-import customtkinter as ctk
 import cv2
 import numpy as np
+import psutil
+import requests
+import tqdm
+from customtkinter import (
+    CTk,
+    CTkButton,
+    CTkCheckBox,
+    CTkComboBox,
+    CTkEntry,
+    CTkFrame,
+    CTkLabel,
+    CTkRadioButton,
+    CTkSwitch,
+    CTkTabview,
+    StringVar,
+    set_appearance_mode,
+)
 from moviepy.editor import CompositeVideoClip, ImageClip, VideoFileClip
 from packaging import version
 from PIL import Image
 
-ctk.set_appearance_mode("dark")
+set_appearance_mode("dark")
 
 global main_window  # main_window gets defined if __name__ == "__main__"
 
@@ -79,17 +95,18 @@ VIDEO_HEIGHT_OFFSET_DEFAULT = 15
 # TODO: Write code for when the user wants to downgrade their current version of the application
 
 
-class UpdateAvailableWindow(ctk.CTk):
+class UpdateAvailableWindow(CTk):
     def __init__(self):
         """Initialize the UpdateAvailableWindow class."""
         super().__init__()
 
-    def run(self, current_version: float, latest_version: float):
+    def run(self, current_version: float, latest_version: float, repo_url: str):
         """Run the update available window.
 
         Args:
             current_version (float): The current version of the application.
             latest_version (float): The latest version available for the application.
+            repo_url (str): URL of the GitHub repository.
 
         """
         self.title("Update Available")
@@ -97,42 +114,116 @@ class UpdateAvailableWindow(ctk.CTk):
         self.resizable(False, False)
         self.attributes("-topmost", True)
 
-        self.create_window_elements(current_version, latest_version)
+        self.create_window_elements(current_version, latest_version, repo_url)
 
-    def create_window_elements(self, current_version: float, latest_version: float):
+    def create_window_elements(self, current_version: float, latest_version: float, repo_url: str):
         """Create the elements for the update available window.
 
         Args:
             current_version (float): The current version of the application.
             latest_version (float): The latest version available for the application.
+            repo_url (str): URL of the GitHub repository.
 
         """
-        label_title = ctk.CTkLabel(self, text="A new version is available!", font=("Arial", 22))
+        label_title = CTkLabel(self, text="A new version is available!", font=("Arial", 22))
         label_title.place(relx=0.5, rely=0.2, anchor="center")
 
-        label_versions = ctk.CTkLabel(
+        label_versions = CTkLabel(
             self,
             text=f"{current_version} (Current)  →  {latest_version}",
             font=("Arial", 14),
         )
         label_versions.place(relx=0.5, rely=0.4, anchor="center")
 
-        label_update_question = ctk.CTkLabel(
-            self, text="Would you like to update?", font=("Arial", 14)
-        )
+        label_update_question = CTkLabel(self, text="Would you like to update?", font=("Arial", 14))
         label_update_question.place(relx=0.5, rely=0.6, anchor="center")
 
-        button_yes = ctk.CTkButton(self, text="Yes", command=self.update, font=("Arial", 14))
+        button_yes = CTkButton(
+            self,
+            text="Yes",
+            command=lambda: self.update(current_version, latest_version, repo_url),
+            font=("Arial", 14),
+        )
         button_yes.place(relx=0.3, rely=0.8, anchor="center")
 
-        button_no = ctk.CTkButton(self, text="No", command=self.close, font=("Arial", 14))
+        button_no = CTkButton(self, text="No", command=self.close, font=("Arial", 14))
         button_no.place(relx=0.7, rely=0.8, anchor="center")
 
-    def update(self):
+    def update(self, current_version: float, latest_version: float, repo_url: str):
         """Update the application by running the updater executable."""
+        update_updater_versions = ["v1.4"]
+
+        if any(
+            version.parse(v) <= version.parse(latest_version) for v in update_updater_versions
+        ) and version.parse(current_version) < version.parse(latest_version):
+            release_url = f"{repo_url}/releases/{latest_version}"
+            self.download_and_install_updater(release_url)
+
         updater_path = Path(MAIN_PATH, "Updater.exe")
         subprocess.Popen([str(updater_path)], shell=True)
         os._exit(0)
+
+    def download_and_install_updater(self, release_url: str):
+        """Download and install the latest version of the updater executable.
+
+        Args:
+            release_url (str): The URL to the latest release of the updater executable.
+
+        """
+        try:
+            filename = "Updater.exe"
+            exe_url = f"{release_url}/{filename}"
+            response = requests.get(exe_url, stream=True, allow_redirects=True)
+
+            if response.status_code != 200:
+                logging.error(
+                    f"Failed to download {filename} from {release_url}. Status code: {response.status_code}. URL: {exe_url}"
+                )
+                return False
+
+            logging.info("Killing any running instances of the application...")
+            self.kill_process(filename)
+            time.sleep(0.5)
+
+            logging.info(f"Downloading {filename}...")
+            total_size = int(response.headers.get("content-length", 0))
+            block_size = 1000  # 1 KB
+
+            with open(filename, "wb") as file, tqdm.tqdm(
+                desc=filename,
+                total=total_size,
+                unit="B",
+                unit_scale=True,
+                unit_divisor=block_size,
+            ) as progress_bar:
+                for data in response.iter_content(block_size):
+                    size = file.write(data)
+                    progress_bar.update(size)
+
+            logging.info(f"Successfully downloaded and installed {filename}")
+            return True
+
+        except requests.RequestException as e:
+            logging.error(
+                f"RequestException while trying to download {filename} from {release_url}: {e}"
+            )
+            return False
+        except Exception as e:
+            logging.error(
+                f"An unexpected error occurred while downloading and installing {filename}: {e}"
+            )
+            return False
+
+    def kill_process(self, process_name: str) -> None:
+        """Kill all processes with the given name of the executable.
+
+        Args:
+            process_name (str): Name of the executable to kill.
+
+        """
+        for proc in psutil.process_iter(["pid", "name"]):
+            if proc.info["name"] == process_name:
+                proc.kill()
 
     def close(self):
         """Close the update available window."""
@@ -590,7 +681,7 @@ class VideoProcessor:
         MainWindow.finish_progress_bar_video_processor(main_window, execution_time)
 
 
-class MainWindow(ctk.CTk):
+class MainWindow(CTk):
     def __init__(self):
         """Initialize the MainWindow class."""
         super().__init__()
@@ -616,17 +707,17 @@ class MainWindow(ctk.CTk):
 
     def create_main_title(self):
         """Create the main title."""
-        main_title = ctk.CTkLabel(self, text="Image & Video Processor", font=("Arial", 28))
+        main_title = CTkLabel(self, text="Image & Video Processor", font=("Arial", 28))
         main_title.place(relx=0.5, rely=0.03, anchor="center")
 
     def create_tabview(self):
         """Create the tab view.
 
         Returns
-            ctk.CTkTabview: The created tab view.
+            CTkTabview: The created tab view.
 
         """
-        tabview = ctk.CTkTabview(self, fg_color="#242424")
+        tabview = CTkTabview(self, fg_color="#242424")
         tabview.place(relx=0, rely=0.07, relwidth=1, relheight=0.93)
         return tabview
 
@@ -640,11 +731,11 @@ class MainWindow(ctk.CTk):
         self.configure_grid(tab=self.videos_tab, columns=3, rows=22)
         self.create_video_tab_elements()
 
-    def configure_grid(self, tab: ctk.CTkTabview, columns: int, rows: int):
+    def configure_grid(self, tab: CTkTabview, columns: int, rows: int):
         """Configure the grid layout for a tab.
 
         Args:
-            tab (ctk.CTkTabview): The tab to configure.
+            tab (CTkTabview): The tab to configure.
             columns (int): Number of columns.
             rows (int): Number of rows.
 
@@ -673,25 +764,25 @@ class MainWindow(ctk.CTk):
         self.create_add_logo_button()
 
     def create_folder_input(
-        self, tab: ctk.CTkTabview, label_text: str, label_row: int, entry_row: int, button_row: int
+        self, tab: CTkTabview, label_text: str, label_row: int, entry_row: int, button_row: int
     ):
         """Create folder input elements.
 
         Args:
-            tab (ctk.CTkTabview): The tab to add the elements to.
+            tab (CTkTabview): The tab to add the elements to.
             label_text (str): The text for the label.
             label_row (int): The row for the label.
             entry_row (int): The row for the entry.
             button_row (int): The row for the button.
 
         """
-        label = ctk.CTkLabel(tab, text=label_text, font=("Arial", 14))
+        label = CTkLabel(tab, text=label_text, font=("Arial", 14))
         label.grid(row=label_row, column=1, columnspan=3, sticky="s")
 
-        entry = ctk.CTkEntry(tab, placeholder_text=f"Path of {label_text.lower()}", width=850)
+        entry = CTkEntry(tab, placeholder_text=f"Path of {label_text.lower()}", width=850)
         entry.grid(row=entry_row, column=1, columnspan=3)
 
-        button = ctk.CTkButton(
+        button = CTkButton(
             tab, text=f"Browse {label_text.lower()}", command=lambda: self.browse_path(entry)
         )
         button.grid(row=button_row, column=1, columnspan=3, sticky="n")
@@ -709,14 +800,14 @@ class MainWindow(ctk.CTk):
 
     def create_num_pixels_input(self):
         """Create the number of pixels input."""
-        label = ctk.CTkLabel(
+        label = CTkLabel(
             self.images_tab,
             text="Maximum number of pixels of the smallest side",
             font=("Arial", 14),
         )
         label.grid(row=7, column=1, columnspan=3, sticky="s")
 
-        self.entry_num_pixels = ctk.CTkEntry(
+        self.entry_num_pixels = CTkEntry(
             self.images_tab,
             placeholder_text="Number of pixels",
             validate="key",
@@ -726,10 +817,10 @@ class MainWindow(ctk.CTk):
 
     def create_logo_image_elements(self):
         """Create elements for the logo image."""
-        self.frame_logo_image = ctk.CTkFrame(self.images_tab, fg_color="transparent")
+        self.frame_logo_image = CTkFrame(self.images_tab, fg_color="transparent")
         self.frame_logo_image.grid(row=10, rowspan=6, column=1, columnspan=3, sticky="nsew")
 
-        self.toggle_logo_image = ctk.CTkSwitch(
+        self.toggle_logo_image = CTkSwitch(
             self.images_tab,
             text="Add Logo to Image",
             font=("Arial", 18),
@@ -744,17 +835,17 @@ class MainWindow(ctk.CTk):
 
     def create_logo_image_path_elements(self):
         """Create elements for the logo image path."""
-        self.label_logo_image = ctk.CTkLabel(
+        self.label_logo_image = CTkLabel(
             self.images_tab, text="Path to Logo Image", font=("Arial", 14)
         )
         self.label_logo_image.grid(row=11, column=2, sticky="s")
 
-        self.entry_logo_image = ctk.CTkEntry(
+        self.entry_logo_image = CTkEntry(
             self.images_tab, placeholder_text="Path to Logo Image", width=600
         )
         self.entry_logo_image.grid(row=12, column=2)
 
-        self.browse_button_logo_image = ctk.CTkButton(
+        self.browse_button_logo_image = CTkButton(
             self.images_tab,
             text="Browse logo image",
             command=lambda: self.browse_path(self.entry_logo_image),
@@ -763,14 +854,14 @@ class MainWindow(ctk.CTk):
 
     def create_logo_image_scale_elements(self):
         """Create elements for the logo image scale."""
-        self.label_scale_logo_image = ctk.CTkLabel(
+        self.label_scale_logo_image = CTkLabel(
             self.images_tab,
             text=f"Scale of the logo image [Range: 1 to 100 , Default: {SCALE_DEFAULT}]",
             font=("Arial", 14),
         )
         self.label_scale_logo_image.grid(row=14, column=2, sticky="s")
 
-        self.entry_scale_logo_image = ctk.CTkEntry(
+        self.entry_scale_logo_image = CTkEntry(
             self.images_tab,
             placeholder_text="Scale",
             validate="key",
@@ -780,18 +871,18 @@ class MainWindow(ctk.CTk):
 
     def create_logo_image_corner_selection(self):
         """Create elements for the logo image corner selection."""
-        self.label_corner_selection_image = ctk.CTkLabel(
+        self.label_corner_selection_image = CTkLabel(
             self.images_tab, text="Corner Selection", font=("Arial", 14)
         )
         self.label_corner_selection_image.grid(row=10, column=3, sticky="s")
 
-        self.images_tab_cornerselection = ctk.CTkFrame(self.images_tab)
+        self.images_tab_cornerselection = CTkFrame(self.images_tab)
         self.images_tab_cornerselection.grid(row=11, column=3, sticky="ns")
 
         self.images_tab_cornerselection.columnconfigure((1, 2), weight=1)
         self.images_tab_cornerselection.rowconfigure((1, 2), weight=1)
 
-        self.selected_corner_image = ctk.StringVar()
+        self.selected_corner_image = StringVar()
 
         self.create_corner_radio_buttons(
             self.images_tab_cornerselection, self.selected_corner_image, "image"
@@ -799,14 +890,14 @@ class MainWindow(ctk.CTk):
 
     def create_logo_image_offset_elements(self):
         """Create elements for the logo image offset."""
-        self.label_offset_width_logo_image = ctk.CTkLabel(
+        self.label_offset_width_logo_image = CTkLabel(
             self.images_tab,
             text=f"Width Offset [Range: 0 to 100, Default: {OFFSET_DEFAULT}]",
             font=("Arial", 14),
         )
         self.label_offset_width_logo_image.grid(row=12, column=3, sticky="s")
 
-        self.entry_offset_width_logo_image = ctk.CTkEntry(
+        self.entry_offset_width_logo_image = CTkEntry(
             self.images_tab,
             placeholder_text="Width Offset",
             validate="key",
@@ -814,14 +905,14 @@ class MainWindow(ctk.CTk):
         )
         self.entry_offset_width_logo_image.grid(row=13, column=3, sticky="n")
 
-        self.label_offset_height_logo_image = ctk.CTkLabel(
+        self.label_offset_height_logo_image = CTkLabel(
             self.images_tab,
             text=f"Height Offset [Range: 0 to 100, Default: {OFFSET_DEFAULT}]",
             font=("Arial", 14),
         )
         self.label_offset_height_logo_image.grid(row=14, column=3, sticky="s")
 
-        self.entry_offset_height_logo_image = ctk.CTkEntry(
+        self.entry_offset_height_logo_image = CTkEntry(
             self.images_tab,
             placeholder_text="Height Offset",
             validate="key",
@@ -831,7 +922,7 @@ class MainWindow(ctk.CTk):
 
     def create_convert_format_elements(self):
         """Create elements for converting image format."""
-        self.combobox_convert_images_format = ctk.CTkComboBox(
+        self.combobox_convert_images_format = CTkComboBox(
             self.images_tab,
             values=IMAGE_FORMATS,
             state="readonly",
@@ -840,7 +931,7 @@ class MainWindow(ctk.CTk):
         )
         self.combobox_convert_images_format.grid(row=16, column=3, sticky="ws")
 
-        self.switch_convert_images_to_format = ctk.CTkSwitch(
+        self.switch_convert_images_to_format = CTkSwitch(
             self.images_tab,
             text="Convert to format",
             font=("Arial", 14),
@@ -849,25 +940,25 @@ class MainWindow(ctk.CTk):
         )
         self.switch_convert_images_to_format.grid(row=16, column=1, columnspan=3, sticky="s")
 
-    def create_overwrite_checkbox(self, tab: ctk.CTkTabview, row: int):
+    def create_overwrite_checkbox(self, tab: CTkTabview, row: int):
         """Create the overwrite checkbox.
 
         Args:
-            tab (ctk.CTkTabview): The tab to add the checkbox to.
+            tab (CTkTabview): The tab to add the checkbox to.
             row (int): The row for the checkbox.
 
         """
-        checkbox_clear_input_folder = ctk.CTkCheckBox(
+        checkbox_clear_input_folder = CTkCheckBox(
             tab, text="Clear input folder", font=("Arial", 14)
         )
         checkbox_clear_input_folder.grid(row=row, column=1, columnspan=2, sticky="w", padx=50)
 
-        checkbox_overwrite = ctk.CTkCheckBox(
+        checkbox_overwrite = CTkCheckBox(
             tab, text="Overwrite existing files in the output folder", font=("Arial", 14)
         )
         checkbox_overwrite.grid(row=row, column=1, columnspan=3)
 
-        checkbox_clear_output_folder = ctk.CTkCheckBox(
+        checkbox_clear_output_folder = CTkCheckBox(
             tab, text="Clear output folder", font=("Arial", 14)
         )
         checkbox_clear_output_folder.grid(row=row, column=3)
@@ -886,7 +977,7 @@ class MainWindow(ctk.CTk):
 
     def create_resize_button(self):
         """Create the resize button."""
-        button = ctk.CTkButton(
+        button = CTkButton(
             self.images_tab,
             text="Resize",
             font=("Arial", 16),
@@ -896,7 +987,7 @@ class MainWindow(ctk.CTk):
 
     def create_add_logo_button(self):
         """Create the add logo button."""
-        button = ctk.CTkButton(
+        button = CTkButton(
             self.videos_tab,
             text="Add Logo to Videos",
             font=("Arial", 16),
@@ -906,7 +997,7 @@ class MainWindow(ctk.CTk):
 
     def create_logo_video_elements(self):
         """Create elements for the logo video."""
-        label_logo_title_video = ctk.CTkLabel(
+        label_logo_title_video = CTkLabel(
             self.videos_tab, text="Logo parameters", font=("Arial", 20)
         )
         label_logo_title_video.grid(row=8, column=1, columnspan=3)
@@ -918,15 +1009,15 @@ class MainWindow(ctk.CTk):
 
     def create_logo_video_path_elements(self):
         """Create elements for the logo video path."""
-        self.label_logo_video = ctk.CTkLabel(
+        self.label_logo_video = CTkLabel(
             self.videos_tab, text="Path to Logo Image", font=("Arial", 14)
         )
         self.label_logo_video.grid(row=9, column=2, sticky="s")
 
-        self.entry_logo_video = ctk.CTkEntry(self.videos_tab, placeholder_text="Path to Logo Image")
+        self.entry_logo_video = CTkEntry(self.videos_tab, placeholder_text="Path to Logo Image")
         self.entry_logo_video.grid(row=10, column=2, sticky="ew")
 
-        self.browse_button_logo_video = ctk.CTkButton(
+        self.browse_button_logo_video = CTkButton(
             self.videos_tab,
             text="Browse logo image",
             command=lambda: self.browse_path(self.entry_logo_video),
@@ -935,14 +1026,14 @@ class MainWindow(ctk.CTk):
 
     def create_logo_video_scale_elements(self):
         """Create elements for the logo video scale."""
-        self.label_scale_logo_video = ctk.CTkLabel(
+        self.label_scale_logo_video = CTkLabel(
             self.videos_tab,
             text=f"Scale of the logo image [Range: 1 to 100 , Default: {VIDEO_SCALE_DEFAULT}]",
             font=("Arial", 14),
         )
         self.label_scale_logo_video.grid(row=12, column=2, sticky="s")
 
-        self.entry_scale_logo_video = ctk.CTkEntry(
+        self.entry_scale_logo_video = CTkEntry(
             self.videos_tab,
             placeholder_text="Scale",
             validate="key",
@@ -952,18 +1043,18 @@ class MainWindow(ctk.CTk):
 
     def create_logo_video_corner_selection(self):
         """Create elements for the logo video corner selection."""
-        self.label_corner_selection_video = ctk.CTkLabel(
+        self.label_corner_selection_video = CTkLabel(
             self.videos_tab, text="Corner Selection", font=("Arial", 14)
         )
         self.label_corner_selection_video.grid(row=8, column=3, sticky="s")
 
-        frame_corner_selection_video = ctk.CTkFrame(self.videos_tab)
+        frame_corner_selection_video = CTkFrame(self.videos_tab)
         frame_corner_selection_video.grid(row=9, column=3, sticky="ns")
 
         frame_corner_selection_video.columnconfigure((1, 2), weight=1)
         frame_corner_selection_video.rowconfigure((1, 2), weight=1)
 
-        self.selected_corner_video = ctk.StringVar()
+        self.selected_corner_video = StringVar()
 
         self.create_corner_radio_buttons(
             frame_corner_selection_video, self.selected_corner_video, "video"
@@ -971,14 +1062,14 @@ class MainWindow(ctk.CTk):
 
     def create_logo_video_offset_elements(self):
         """Create elements for the logo video offset."""
-        self.label_offset_width_logo_video = ctk.CTkLabel(
+        self.label_offset_width_logo_video = CTkLabel(
             self.videos_tab,
             text=f"Width Offset [Range: -100 to 100, Default: {VIDEO_WIDTH_OFFSET_DEFAULT}]",
             font=("Arial", 14),
         )
         self.label_offset_width_logo_video.grid(row=10, column=3, sticky="s")
 
-        self.entry_offset_width_logo_video = ctk.CTkEntry(
+        self.entry_offset_width_logo_video = CTkEntry(
             self.videos_tab,
             placeholder_text="Width Offset",
             validate="key",
@@ -986,14 +1077,14 @@ class MainWindow(ctk.CTk):
         )
         self.entry_offset_width_logo_video.grid(row=11, column=3, sticky="n")
 
-        self.label_offset_height_logo_video = ctk.CTkLabel(
+        self.label_offset_height_logo_video = CTkLabel(
             self.videos_tab,
             text=f"Height Offset [Range: -100 to 100, Default: {VIDEO_HEIGHT_OFFSET_DEFAULT}]",
             font=("Arial", 14),
         )
         self.label_offset_height_logo_video.grid(row=12, column=3, sticky="s")
 
-        self.entry_offset_height_logo_video = ctk.CTkEntry(
+        self.entry_offset_height_logo_video = CTkEntry(
             self.videos_tab,
             placeholder_text="Height Offset",
             validate="key",
@@ -1001,14 +1092,12 @@ class MainWindow(ctk.CTk):
         )
         self.entry_offset_height_logo_video.grid(row=13, column=3, sticky="n")
 
-    def create_corner_radio_buttons(
-        self, frame: ctk.CTkFrame, variable: ctk.StringVar, prefix: str
-    ):
+    def create_corner_radio_buttons(self, frame: CTkFrame, variable: StringVar, prefix: str):
         """Create radio buttons for corner selection.
 
         Args:
-            frame (ctk.CTkFrame): The frame to add the radio buttons to.
-            variable (ctk.StringVar): The variable to bind the radio buttons to.
+            frame (CTkFrame): The frame to add the radio buttons to.
+            variable (StringVar): The variable to bind the radio buttons to.
             prefix (str): The prefix for the attribute names.
 
         """
@@ -1019,15 +1108,15 @@ class MainWindow(ctk.CTk):
             ("Bottom Right", 2, 2, f"radiobutton_bottomright_{prefix}"),
         ]
         for text, row, col, attr_name in corners:
-            radio_button = ctk.CTkRadioButton(frame, text=text, variable=variable, value=text)
+            radio_button = CTkRadioButton(frame, text=text, variable=variable, value=text)
             radio_button.grid(row=row, column=col, sticky="e" if "Right" in text else "w")
             setattr(self, attr_name, radio_button)
 
-    def browse_path(self, entry: ctk.CTkEntry):
+    def browse_path(self, entry: CTkEntry):
         """Browse and select a path for the given entry.
 
         Args:
-            entry (ctk.CTkEntry): The entry widget to update with the selected path.
+            entry (CTkEntry): The entry widget to update with the selected path.
 
         """
         initial_dir = None
@@ -1327,9 +1416,9 @@ class MainWindow(ctk.CTk):
         if hasattr(self, "label_percent") and self.label_percent.winfo_exists():
             self.label_percent.destroy()
 
-        self.percent = ctk.StringVar()
+        self.percent = StringVar()
 
-        self.label_percent = ctk.CTkLabel(
+        self.label_percent = CTkLabel(
             master=self.images_tab, textvariable=self.percent, font=("Arial", 15)
         )
         self.label_percent.grid(row=22, column=1, columnspan=3, sticky="s")
@@ -1379,9 +1468,9 @@ class MainWindow(ctk.CTk):
         if hasattr(self, "label_percent") and self.label_percent.winfo_exists():
             self.label_percent.destroy()
 
-        self.percent = ctk.StringVar()
+        self.percent = StringVar()
 
-        label_percent = ctk.CTkLabel(
+        label_percent = CTkLabel(
             master=self.videos_tab, textvariable=self.percent, font=("Arial", 15)
         )
         label_percent.grid(row=20, column=1, columnspan=3, sticky="s")
@@ -1575,7 +1664,7 @@ async def check_version() -> None:
         if version.parse(latest_version) > version.parse(current_version):
             logging.info(f"New version available! ({current_version} -> {latest_version})")
             update_window = UpdateAvailableWindow()
-            update_window.run(current_version, latest_version)
+            update_window.run(current_version, latest_version, repo_url)
             update_window.mainloop()
         else:
             logging.info("You are on the most recent version!")
