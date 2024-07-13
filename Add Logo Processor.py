@@ -1,22 +1,44 @@
+import asyncio
 import json
 import logging
 import os
+import shutil
 import subprocess
 import sys
 import time
 import tkinter as tk
+import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
+from typing import Optional
 
-import customtkinter as ctk
+import aiohttp
 import cv2
 import numpy as np
+import psutil
 import requests
+import tqdm
+from customtkinter import (
+    CTk,
+    CTkButton,
+    CTkCheckBox,
+    CTkComboBox,
+    CTkEntry,
+    CTkFrame,
+    CTkLabel,
+    CTkRadioButton,
+    CTkSwitch,
+    CTkTabview,
+    CTkToplevel,
+    StringVar,
+    set_appearance_mode,
+)
 from moviepy.editor import CompositeVideoClip, ImageClip, VideoFileClip
+from packaging import version
 from PIL import Image
 
-ctk.set_appearance_mode("dark")
+set_appearance_mode("dark")
 
 global main_window  # main_window gets defined if __name__ == "__main__"
 
@@ -40,7 +62,7 @@ logging.basicConfig(
 
 
 # Global exception handler
-def handle_exception(exc_type, exc_value, exc_traceback):
+def handle_exception(exc_type: type, exc_value: Exception, exc_traceback: traceback):
     """Handle uncaught exceptions by logging them.
 
     Args:
@@ -70,21 +92,30 @@ VIDEO_SCALE_DEFAULT = 13
 VIDEO_WIDTH_OFFSET_DEFAULT = 10
 VIDEO_HEIGHT_OFFSET_DEFAULT = 15
 
-# ----------------------------------- v1.3 ----------------------------------- #
-# TODO: Write code for when the user wants to downgrade their current version of the application
+# ----------------------------------- v1.5 ----------------------------------- #
+# TODO: Try to integrate both the downgrading and viewing the changelog logic into a single window without tabs
+
+# TODO: Write the logic for downgrading or upgrading versions using the versions window:
+# - Change the use of version.txt by adding all possible versions to it, putting them in descending order
+
+# TODO: Write the logic for viewing the changelog using the versions window:
+# - Create a changelog.md file as changelog which will be stored locally on someones computer
+# - Read the changelog.md file and display it in the changelog window
+# - Add code to Add Logo Processor.py to get the latest changelog when a new version is available (Not affected by if the user chooses to update or not)
 
 
-class UpdateAvailableWindow(ctk.CTk):
+class UpdateAvailableWindow(CTk):
     def __init__(self):
         """Initialize the UpdateAvailableWindow class."""
         super().__init__()
 
-    def run(self, current_version: float, latest_version: float):
+    def run(self, current_version: float, latest_version: float, repo_url: str):
         """Run the update available window.
 
         Args:
             current_version (float): The current version of the application.
             latest_version (float): The latest version available for the application.
+            repo_url (str): URL of the GitHub repository.
 
         """
         self.title("Update Available")
@@ -92,49 +123,188 @@ class UpdateAvailableWindow(ctk.CTk):
         self.resizable(False, False)
         self.attributes("-topmost", True)
 
-        self.create_window_elements(current_version, latest_version)
+        self.create_window_elements(current_version, latest_version, repo_url)
 
-    def create_window_elements(self, current_version: float, latest_version: float):
+    def create_window_elements(self, current_version: float, latest_version: float, repo_url: str):
         """Create the elements for the update available window.
 
         Args:
             current_version (float): The current version of the application.
             latest_version (float): The latest version available for the application.
+            repo_url (str): URL of the GitHub repository.
 
         """
-        label_title = ctk.CTkLabel(self, text="A new version is available!", font=("Arial", 22))
+        label_title = CTkLabel(self, text="A new version is available!", font=("Arial", 22))
         label_title.place(relx=0.5, rely=0.2, anchor="center")
 
-        label_versions = ctk.CTkLabel(
+        label_versions = CTkLabel(
             self,
             text=f"{current_version} (Current)  →  {latest_version}",
             font=("Arial", 14),
         )
         label_versions.place(relx=0.5, rely=0.4, anchor="center")
 
-        label_update_question = ctk.CTkLabel(self, text="Would you like to update?", font=("Arial", 14))
+        label_update_question = CTkLabel(self, text="Would you like to update?", font=("Arial", 14))
         label_update_question.place(relx=0.5, rely=0.6, anchor="center")
 
-        button_yes = ctk.CTkButton(self, text="Yes", command=self.update, font=("Arial", 14))
+        button_yes = CTkButton(
+            self,
+            text="Yes",
+            command=lambda: self.update(current_version, latest_version, repo_url),
+            font=("Arial", 14),
+        )
         button_yes.place(relx=0.3, rely=0.8, anchor="center")
 
-        button_no = ctk.CTkButton(self, text="No", command=self.close, font=("Arial", 14))
+        button_no = CTkButton(self, text="No", command=self.close, font=("Arial", 14))
         button_no.place(relx=0.7, rely=0.8, anchor="center")
 
-    def update(self):
+    def update(self, current_version: float, latest_version: float, repo_url: str):
         """Update the application by running the updater executable."""
+        update_updater_versions = ["v1.4"]
+
+        if any(
+            version.parse(v) <= version.parse(latest_version) for v in update_updater_versions
+        ) and version.parse(current_version) < version.parse(latest_version):
+            release_url = f"{repo_url}/releases/{latest_version}"
+            self.download_and_install_updater(release_url)
+
         updater_path = Path(MAIN_PATH, "Updater.exe")
         subprocess.Popen([str(updater_path)], shell=True)
         os._exit(0)
+
+    def download_and_install_updater(self, release_url: str):
+        """Download and install the latest version of the updater executable.
+
+        Args:
+            release_url (str): The URL to the latest release of the updater executable.
+
+        """
+        try:
+            filename = "Updater.exe"
+            exe_url = f"{release_url}/{filename}"
+            response = requests.get(exe_url, stream=True, allow_redirects=True)
+
+            if response.status_code != 200:
+                logging.error(
+                    f"Failed to download {filename} from {release_url}. Status code: {response.status_code}. URL: {exe_url}"
+                )
+                return False
+
+            logging.info("Killing any running instances of the application...")
+            self.kill_process(filename)
+            time.sleep(0.5)
+
+            logging.info(f"Downloading {filename}...")
+            total_size = int(response.headers.get("content-length", 0))
+            block_size = 1000  # 1 KB
+
+            with open(filename, "wb") as file, tqdm.tqdm(
+                desc=filename,
+                total=total_size,
+                unit="B",
+                unit_scale=True,
+                unit_divisor=block_size,
+            ) as progress_bar:
+                for data in response.iter_content(block_size):
+                    size = file.write(data)
+                    progress_bar.update(size)
+
+            logging.info(f"Successfully downloaded and installed {filename}")
+            return True
+
+        except requests.RequestException as e:
+            logging.error(
+                f"RequestException while trying to download {filename} from {release_url}: {e}"
+            )
+            return False
+        except Exception as e:
+            logging.error(
+                f"An unexpected error occurred while downloading and installing {filename}: {e}"
+            )
+            return False
+
+    def kill_process(self, process_name: str) -> None:
+        """Kill all processes with the given name of the executable.
+
+        Args:
+            process_name (str): Name of the executable to kill.
+
+        """
+        for proc in psutil.process_iter(["pid", "name"]):
+            if proc.info["name"] == process_name:
+                proc.kill()
 
     def close(self):
         """Close the update available window."""
         self.destroy()
 
 
+class VersionsWindow(CTkToplevel):
+    def __init__(self):
+        super().__init__()
+
+        self.title("Versions Window")
+        self.geometry("600x600")
+        self.attributes("-topmost", True)
+        self.create_window_elements()
+
+    def create_window_elements(self):
+        """Create the elements of the window."""
+        tabview = self.create_tabview()
+        self.versions_tab = tabview.add("Versions")
+        self.changelog_tab = tabview.add("Changelog")
+        self.setup_versions_tab()
+        self.setup_changelog_tab()
+
+    def create_tabview(self):
+        """Create the tab view.
+
+        Returns
+            CTkTabview: The created tab view.
+
+        """
+        tabview = CTkTabview(self, fg_color="#242424")
+        tabview.place(relx=0, rely=0.07, relwidth=1, relheight=0.93)
+        return tabview
+
+    def configure_grid(self, tab: CTkTabview, columns: int, rows: int):
+        """Configure the grid layout for a tab.
+
+        Args:
+            tab (CTkTabview): The tab to configure.
+            columns (int): Number of columns.
+            rows (int): Number of rows.
+
+        """
+        for col in range(columns):
+            tab.columnconfigure(col, weight=1)
+        for row in range(rows):
+            tab.rowconfigure(row, weight=1)
+
+    def setup_versions_tab(self):
+        """Create the image tab."""
+        self.configure_grid(tab=self.versions_tab, columns=1, rows=1)
+        self.create_versions_tab_elements()
+
+    def setup_changelog_tab(self):
+        """Create the video tab."""
+        self.configure_grid(tab=self.changelog_tab, columns=1, rows=1)
+        self.create_changelog_tab_elements()
+
+    def create_versions_tab_elements(self):
+        """Create the elements of the versions tab."""
+        coming_soon_title = CTkLabel(self.versions_tab, text="Coming Soon", font=("Arial", 30))
+        coming_soon_title.place(relx=0.5, rely=0.4, anchor="center")
+
+    def create_changelog_tab_elements(self):
+        """Create the elements of the changelog tab."""
+        coming_soon_title = CTkLabel(self.changelog_tab, text="Coming Soon", font=("Arial", 30))
+        coming_soon_title.place(relx=0.5, rely=0.4, anchor="center")
+
+
 class ImageProcessor:
     @staticmethod
-    def save_image_as_webp(output_file, img, quality=80):
+    def save_image_as_webp(output_file: str, img: np.ndarray, quality: Optional[int] = 80):
         """Save an image as a WebP file.
 
         Args:
@@ -198,9 +368,15 @@ class ImageProcessor:
             case "Top Left":
                 position = int(0 + offset_logo_width), int(0 + offset_logo_height)
             case "Top Right":
-                position = int(new_width - logo_width - offset_logo_width), int(0 + offset_logo_height)
+                position = (
+                    int(new_width - logo_width - offset_logo_width),
+                    int(0 + offset_logo_height),
+                )
             case "Bottom Left":
-                position = int(0 + offset_logo_width), int(new_height - logo_height - offset_logo_height)
+                position = (
+                    int(0 + offset_logo_width),
+                    int(new_height - logo_height - offset_logo_height),
+                )
             case "Bottom Right":
                 position = (
                     int(new_width - logo_width - offset_logo_width),
@@ -223,7 +399,7 @@ class ImageProcessor:
         output_folder_path: Path,
         file: str,
         min_pixels: int,
-        overwrite_output_images: bool,
+        overwrite_existing_images: bool,
         add_logo: bool,
         logo_img: np.ndarray,
         scale: int,
@@ -240,7 +416,7 @@ class ImageProcessor:
             output_folder_path (Path): The path to the output folder.
             file (str): The file name of the image.
             min_pixels (int): The minimum number of pixels for the smallest side.
-            overwrite_output_images (bool): Whether to overwrite existing images.
+            overwrite_existing_images (bool): Whether to overwrite existing images.
             add_logo (bool): Whether to add a logo to the image.
             logo_img (np.ndarray): The logo image.
             scale (int): The scale of the logo.
@@ -256,7 +432,7 @@ class ImageProcessor:
         if convert_to_format:
             output_file = Path(output_folder_path, file).with_suffix(f".{format}")
 
-        if not output_file.exists() or overwrite_output_images:
+        if not output_file.exists() or overwrite_existing_images:
             # Open the input image
             input_file = Path(input_folder_path, file)
             img = cv2.imread(str(input_file))
@@ -273,16 +449,16 @@ class ImageProcessor:
 
             if add_logo:
                 ImageProcessor.add_logo_operation(
-                    scale,
-                    width,
-                    height,
-                    new_height,
-                    new_width,
-                    logo_img,
-                    img,
-                    selected_corner,
-                    offset_logo_width,
-                    offset_logo_height,
+                    scale=scale,
+                    width=width,
+                    height=height,
+                    new_height=new_height,
+                    new_width=new_width,
+                    logo_img=logo_img,
+                    img=img,
+                    selected_corner=selected_corner,
+                    offset_logo_width=offset_logo_width,
+                    offset_logo_height=offset_logo_height,
                 )
 
             if format == "webp":
@@ -295,7 +471,7 @@ class ImageProcessor:
         input_folder_path: Path,
         output_folder_path: Path,
         min_pixels: int,
-        overwrite_output_images: bool,
+        overwrite_existing_images: bool,
         add_logo: bool,
         logo_path: Path,
         scale: int,
@@ -304,6 +480,8 @@ class ImageProcessor:
         selected_corner: str,
         convert_to_format: bool,
         format: str,
+        clear_input_folder: bool,
+        clear_output_folder: bool,
     ):
         """Resizes multiple images and optionally adds a logo.
 
@@ -311,7 +489,7 @@ class ImageProcessor:
             input_folder_path (Path): The path to the input folder.
             output_folder_path (Path): The path to the output folder.
             min_pixels (int): The minimum number of pixels for the smallest side.
-            overwrite_output_images (bool): Whether to overwrite existing images.
+            overwrite_existing_images (bool): Whether to overwrite existing images.
             add_logo (bool): Whether to add a logo to the images.
             logo_path (Path): The path to the logo image.
             scale (int): The scale of the logo.
@@ -320,6 +498,8 @@ class ImageProcessor:
             selected_corner (str): The corner where the logo will be placed.
             convert_to_format (bool): Whether to convert the images to a different format.
             format (str): The format to which the images will be converted.
+            clear_input_folder (bool): Whether to clear the input folder.
+            clear_output_folder (bool): Whether to clear the output folder.
 
         """
         start_time = time.time()
@@ -331,7 +511,7 @@ class ImageProcessor:
             settings_image_processor = settings["image_processor"]
 
             if settings_image_processor["number_pixels"] != min_pixels:
-                overwrite_output_images = True
+                overwrite_existing_images = True
 
             files = os.listdir(input_folder_path)
             files = sorted(
@@ -356,11 +536,17 @@ class ImageProcessor:
                     "logo_corner": selected_corner,
                     "convert_to_format": convert_to_format,
                     "format": format,
+                    "clear_input_folder": clear_input_folder,
+                    "clear_output_folder": clear_output_folder,
                 }
             )
             MainWindow.save_settings(settings)
         except Exception as e:
             logging.error(f"Error: {e}")
+
+        # Clear output folder if true
+        if clear_output_folder:
+            MainWindow.clear_folder(output_folder_path)
 
         # Create a progress bar
         total_files = len(files)
@@ -372,25 +558,29 @@ class ImageProcessor:
             for file in files:
                 future = executor.submit(
                     ImageProcessor.resize_image_operation,
-                    input_folder_path,
-                    output_folder_path,
-                    file,
-                    min_pixels,
-                    overwrite_output_images,
-                    add_logo,
-                    logo_img,
-                    scale,
-                    offset_logo_width,
-                    offset_logo_height,
-                    selected_corner,
-                    convert_to_format,
-                    format,
+                    input_folder_path=input_folder_path,
+                    output_folder_path=output_folder_path,
+                    file=file,
+                    min_pixels=min_pixels,
+                    overwrite_existing_images=overwrite_existing_images,
+                    add_logo=add_logo,
+                    logo_img=logo_img,
+                    scale=scale,
+                    offset_logo_width=offset_logo_width,
+                    offset_logo_height=offset_logo_height,
+                    selected_corner=selected_corner,
+                    convert_to_format=convert_to_format,
+                    format=format,
                 )
                 futures.append(future)
 
             for i, future in enumerate(as_completed(futures), start=1):
                 future.result()  # Wait for the resize_image operation to complete
                 MainWindow.update_progress_bar_image_processor(main_window, total_files, i)
+
+        # Clear input folder if true
+        if clear_input_folder:
+            MainWindow.clear_folder(input_folder_path)
 
         end_time = time.time()
         execution_time = round(end_time - start_time, 3)
@@ -404,7 +594,7 @@ class VideoProcessor:
         input_folder_path: Path,
         output_folder_path: Path,
         file,
-        overwrite_output_videos: bool,
+        overwrite_existing_videos: bool,
         logo_path: Path,
         scale: int,
         offset_logo_width: int,
@@ -417,7 +607,7 @@ class VideoProcessor:
             input_folder_path (Path): The path to the input folder.
             output_folder_path (Path): The path to the output folder.
             file (os.DirEntry): The video file.
-            overwrite_output_videos (bool): Whether to overwrite existing videos.
+            overwrite_existing_videos (bool): Whether to overwrite existing videos.
             logo_path (Path): The path to the logo image.
             scale (int): The scale of the logo.
             offset_logo_width (int): The width offset for the logo.
@@ -427,7 +617,7 @@ class VideoProcessor:
         """
         output_file = output_folder_path / file.name
 
-        if not output_file.exists() or overwrite_output_videos:
+        if not output_file.exists() or overwrite_existing_videos:
             # Load video clip
             video_path = str(input_folder_path / file.name)
             video_clip = VideoFileClip(video_path)
@@ -478,24 +668,28 @@ class VideoProcessor:
     def add_logo_to_video(
         input_folder_path: Path,
         output_folder_path: Path,
-        overwrite_output_videos: bool,
+        overwrite_existing_videos: bool,
         logo_path: Path,
         scale: int,
         offset_logo_width: int,
         offset_logo_height: int,
         selected_corner: str,
+        clear_input_folder: bool,
+        clear_output_folder: bool,
     ):
         """Add a logo to multiple videos.
 
         Args:
             input_folder_path (Path): The path to the input folder.
             output_folder_path (Path): The path to the output folder.
-            overwrite_output_videos (bool): Whether to overwrite existing videos.
+            overwrite_existing_videos (bool): Whether to overwrite existing videos.
             logo_path (Path): The path to the logo image.
             scale (int): The scale of the logo.
             offset_logo_width (int): The width offset for the logo.
             offset_logo_height (int): The height offset for the logo.
             selected_corner (str): The corner where the logo will be placed.
+            clear_input_folder (bool): Whether to clear the input folder.
+            clear_output_folder (bool): Whether to clear the output folder.
 
         """
         start_time = time.time()
@@ -519,6 +713,10 @@ class VideoProcessor:
         except Exception as e:
             logging.error(f"Error writing settings: {e}")
 
+        # Clear output folder if true
+        if clear_output_folder:
+            MainWindow.clear_folder(output_folder_path)
+
         # Display Progress Bar
         total_files = len(files)
         MainWindow.create_progress_bar_video_processor(main_window, total_files)
@@ -529,15 +727,15 @@ class VideoProcessor:
             for file in files:
                 future = executor.submit(
                     VideoProcessor.add_logo_to_video_operation,
-                    input_folder_path,
-                    output_folder_path,
-                    file,
-                    overwrite_output_videos,
-                    logo_path,
-                    scale,
-                    offset_logo_width,
-                    offset_logo_height,
-                    selected_corner,
+                    input_folder_path=input_folder_path,
+                    output_folder_path=output_folder_path,
+                    file=file,
+                    overwrite_existing_videos=overwrite_existing_videos,
+                    logo_path=logo_path,
+                    scale=scale,
+                    offset_logo_width=offset_logo_width,
+                    offset_logo_height=offset_logo_height,
+                    selected_corner=selected_corner,
                 )
                 futures.append(future)
 
@@ -545,13 +743,17 @@ class VideoProcessor:
                 future.result()  # Wait for the add_logo_to_video_operation to complete
                 MainWindow.update_progress_bar_video_processor(main_window, total_files, i)
 
+        # Clear input folder if true
+        if clear_input_folder:
+            MainWindow.clear_folder(input_folder_path)
+
         end_time = time.time()
         execution_time = round(end_time - start_time, 3)
         logging.info(f"Processed all videos in {execution_time} seconds")
         MainWindow.finish_progress_bar_video_processor(main_window, execution_time)
 
 
-class MainWindow(ctk.CTk):
+class MainWindow(CTk):
     def __init__(self):
         """Initialize the MainWindow class."""
         super().__init__()
@@ -561,75 +763,131 @@ class MainWindow(ctk.CTk):
         self.title("Image & Video Processor")
         self.geometry("1000x1000")
 
-        self.validate_numeric_input_cmd_command = (
-            self.register(self.validate_numeric_input),
-            "%P",
-        )
+        self.validate_numeric_input_cmd_command = (self.register(self.validate_numeric_input), "%P")
+        self.setup_ui()
 
-        self.create_window_elements()
         self.insert_settings()
 
-    def create_window_elements(self):
-        """Create the elements for the main window."""
-        main_title = ctk.CTkLabel(self, text="Image & Video Processor", font=("Arial", 28))
-        main_title.place(relx=0.5, rely=0.03, anchor="center")
-
-        # Tabs
-        tabview = ctk.CTkTabview(self, fg_color="#242424")
-        tabview.place(relx=0, rely=0.07, relwidth=1, relheight=0.93)
-
+    def setup_ui(self):
+        """Create the UI elements for the images and videos tab."""
+        self.create_top_bar()
+        tabview = self.create_tabview()
         self.images_tab = tabview.add("Images")
         self.videos_tab = tabview.add("Videos")
+        self.setup_image_tab()
+        self.setup_video_tab()
 
-        # ---------------------------------------------------------------------------- #
-        #                                Image Processor                               #
-        # ---------------------------------------------------------------------------- #
+    def create_top_bar(self):
+        """Create the main title and the version window button in the top bar."""
+        main_title = CTkLabel(self, text="Image & Video Processor", font=("Arial", 28))
+        main_title.place(relx=0.5, rely=0.03, anchor="center")
 
-        # Define grid
-        self.images_tab.columnconfigure(1, weight=1)
-        self.images_tab.columnconfigure(2, weight=1)
-        self.images_tab.columnconfigure(3, weight=1)
+        config = MainWindow.load_config()
+        version_number = config["version"]
 
-        for i in range(24):
-            self.images_tab.rowconfigure(i, weight=1)
-
-        # Input folder
-        label_input = ctk.CTkLabel(self.images_tab, text="Input Folder", font=("Arial", 14))
-        label_input.grid(row=1, column=1, columnspan=3, sticky="s")
-
-        self.entry_input_image = ctk.CTkEntry(self.images_tab, placeholder_text="Path of input folder", width=850)
-        self.entry_input_image.grid(row=2, column=1, columnspan=3)
-
-        self.browse_button_input = ctk.CTkButton(
-            self.images_tab,
-            text="Browse input folder",
-            command=lambda: self.browse_path(self.entry_input_image),
+        version_window_button = CTkButton(
+            self, text=f"Version: {version_number}", command=VersionsWindow
         )
-        self.browse_button_input.grid(row=3, column=1, columnspan=3, sticky="n")
+        version_window_button.place(relx=0.03, rely=0.03, anchor="nw")
 
-        # Output folder
-        label_output = ctk.CTkLabel(self.images_tab, text="Output Folder", font=("Arial", 14))
-        label_output.grid(row=4, column=1, columnspan=3, sticky="s")
+    def create_tabview(self):
+        """Create the tab view.
 
-        self.entry_output_image = ctk.CTkEntry(self.images_tab, placeholder_text="Path of output folder", width=850)
-        self.entry_output_image.grid(row=5, column=1, columnspan=3)
+        Returns
+            CTkTabview: The created tab view.
 
-        browse_button_output = ctk.CTkButton(
-            self.images_tab,
-            text="Browse output folder",
-            command=lambda: self.browse_path(self.entry_output_image),
+        """
+        tabview = CTkTabview(self, fg_color="#242424")
+        tabview.place(relx=0, rely=0.07, relwidth=1, relheight=0.93)
+        return tabview
+
+    def setup_image_tab(self):
+        """Create the image tab."""
+        self.configure_grid(tab=self.images_tab, columns=3, rows=24)
+        self.create_image_tab_elements()
+
+    def setup_video_tab(self):
+        """Create the video tab."""
+        self.configure_grid(tab=self.videos_tab, columns=3, rows=22)
+        self.create_video_tab_elements()
+
+    def configure_grid(self, tab: CTkTabview, columns: int, rows: int):
+        """Configure the grid layout for a tab.
+
+        Args:
+            tab (CTkTabview): The tab to configure.
+            columns (int): Number of columns.
+            rows (int): Number of rows.
+
+        """
+        for col in range(columns):
+            tab.columnconfigure(col, weight=1)
+        for row in range(rows):
+            tab.rowconfigure(row, weight=1)
+
+    def create_image_tab_elements(self):
+        """Create elements for the image tab."""
+        self.create_folder_input(self.images_tab, "Input Folder", 1, 2, 3)
+        self.create_folder_input(self.images_tab, "Output Folder", 4, 5, 6)
+        self.create_num_pixels_input()
+        self.create_logo_image_elements()
+        self.create_convert_format_elements()
+        self.create_overwrite_checkbox(self.images_tab, 18)
+        self.create_resize_button()
+
+    def create_video_tab_elements(self):
+        """Create elements for the video tab."""
+        self.create_folder_input(self.videos_tab, "Input Folder", 1, 2, 3)
+        self.create_folder_input(self.videos_tab, "Output Folder", 4, 5, 6)
+        self.create_logo_video_elements()
+        self.create_overwrite_checkbox(self.videos_tab, 15)
+        self.create_add_logo_button()
+
+    def create_folder_input(
+        self, tab: CTkTabview, label_text: str, label_row: int, entry_row: int, button_row: int
+    ):
+        """Create folder input elements.
+
+        Args:
+            tab (CTkTabview): The tab to add the elements to.
+            label_text (str): The text for the label.
+            label_row (int): The row for the label.
+            entry_row (int): The row for the entry.
+            button_row (int): The row for the button.
+
+        """
+        label = CTkLabel(tab, text=label_text, font=("Arial", 14))
+        label.grid(row=label_row, column=1, columnspan=3, sticky="s")
+
+        entry = CTkEntry(tab, placeholder_text=f"Path of {label_text.lower()}", width=850)
+        entry.grid(row=entry_row, column=1, columnspan=3)
+
+        button = CTkButton(
+            tab, text=f"Browse {label_text.lower()}", command=lambda: self.browse_path(entry)
         )
-        browse_button_output.grid(row=6, column=1, columnspan=3, sticky="n")
+        button.grid(row=button_row, column=1, columnspan=3, sticky="n")
 
-        # Number of pixels
-        label_num_pixels = ctk.CTkLabel(
+        if label_text == "Input Folder":
+            if tab == self.images_tab:
+                self.entry_input_image = entry
+            else:
+                self.entry_input_video = entry
+        else:
+            if tab == self.images_tab:
+                self.entry_output_image = entry
+            else:
+                self.entry_output_video = entry
+
+    def create_num_pixels_input(self):
+        """Create the number of pixels input."""
+        label = CTkLabel(
             self.images_tab,
             text="Maximum number of pixels of the smallest side",
             font=("Arial", 14),
         )
-        label_num_pixels.grid(row=7, column=1, columnspan=3, sticky="s")
+        label.grid(row=7, column=1, columnspan=3, sticky="s")
 
-        self.entry_num_pixels = ctk.CTkEntry(
+        self.entry_num_pixels = CTkEntry(
             self.images_tab,
             placeholder_text="Number of pixels",
             validate="key",
@@ -637,14 +895,12 @@ class MainWindow(ctk.CTk):
         )
         self.entry_num_pixels.grid(row=8, column=1, columnspan=3)
 
-        # Logo image
-        self.frame_logo_image = ctk.CTkFrame(
-            self.images_tab,
-            fg_color="transparent",
-        )
+    def create_logo_image_elements(self):
+        """Create elements for the logo image."""
+        self.frame_logo_image = CTkFrame(self.images_tab, fg_color="transparent")
         self.frame_logo_image.grid(row=10, rowspan=6, column=1, columnspan=3, sticky="nsew")
 
-        self.toggle_logo_image = ctk.CTkSwitch(
+        self.toggle_logo_image = CTkSwitch(
             self.images_tab,
             text="Add Logo to Image",
             font=("Arial", 18),
@@ -652,27 +908,40 @@ class MainWindow(ctk.CTk):
         )
         self.toggle_logo_image.grid(row=10, column=1, columnspan=3)
 
-        self.label_logo_image = ctk.CTkLabel(self.images_tab, text="Path to Logo Image", font=("Arial", 14))
+        self.create_logo_image_path_elements()
+        self.create_logo_image_scale_elements()
+        self.create_logo_image_corner_selection()
+        self.create_logo_image_offset_elements()
+
+    def create_logo_image_path_elements(self):
+        """Create elements for the logo image path."""
+        self.label_logo_image = CTkLabel(
+            self.images_tab, text="Path to Logo Image", font=("Arial", 14)
+        )
         self.label_logo_image.grid(row=11, column=2, sticky="s")
 
-        self.entry_logo_image = ctk.CTkEntry(self.images_tab, placeholder_text="Path to Logo Image")
-        self.entry_logo_image.grid(row=12, column=2, sticky="ew")
+        self.entry_logo_image = CTkEntry(
+            self.images_tab, placeholder_text="Path to Logo Image", width=600
+        )
+        self.entry_logo_image.grid(row=12, column=2)
 
-        self.browse_button_logo_image = ctk.CTkButton(
+        self.browse_button_logo_image = CTkButton(
             self.images_tab,
             text="Browse logo image",
             command=lambda: self.browse_path(self.entry_logo_image),
         )
         self.browse_button_logo_image.grid(row=13, column=2, sticky="n")
 
-        self.label_scale_logo_image = ctk.CTkLabel(
+    def create_logo_image_scale_elements(self):
+        """Create elements for the logo image scale."""
+        self.label_scale_logo_image = CTkLabel(
             self.images_tab,
             text=f"Scale of the logo image [Range: 1 to 100 , Default: {SCALE_DEFAULT}]",
             font=("Arial", 14),
         )
         self.label_scale_logo_image.grid(row=14, column=2, sticky="s")
 
-        self.entry_scale_logo_image = ctk.CTkEntry(
+        self.entry_scale_logo_image = CTkEntry(
             self.images_tab,
             placeholder_text="Scale",
             validate="key",
@@ -680,59 +949,35 @@ class MainWindow(ctk.CTk):
         )
         self.entry_scale_logo_image.grid(row=15, column=2, sticky="n")
 
-        # Logo corner selection
-        self.label_corner_selection_image = ctk.CTkLabel(self.images_tab, text="Corner Selection", font=("Arial", 14))
+    def create_logo_image_corner_selection(self):
+        """Create elements for the logo image corner selection."""
+        self.label_corner_selection_image = CTkLabel(
+            self.images_tab, text="Corner Selection", font=("Arial", 14)
+        )
         self.label_corner_selection_image.grid(row=10, column=3, sticky="s")
 
-        self.images_tab_cornerselection = ctk.CTkFrame(self.images_tab)
+        self.images_tab_cornerselection = CTkFrame(self.images_tab)
         self.images_tab_cornerselection.grid(row=11, column=3, sticky="ns")
 
         self.images_tab_cornerselection.columnconfigure((1, 2), weight=1)
         self.images_tab_cornerselection.rowconfigure((1, 2), weight=1)
 
-        self.selected_corner_image = ctk.StringVar()
+        self.selected_corner_image = StringVar()
 
-        self.radiobutton_topleft_image = ctk.CTkRadioButton(
-            self.images_tab_cornerselection,
-            text="Top Left",
-            variable=self.selected_corner_image,
-            value="Top Left",
+        self.create_corner_radio_buttons(
+            self.images_tab_cornerselection, self.selected_corner_image, "image"
         )
-        self.radiobutton_topleft_image.grid(row=1, column=1)
 
-        self.radiobutton_topright_image = ctk.CTkRadioButton(
-            self.images_tab_cornerselection,
-            text="Top Right",
-            variable=self.selected_corner_image,
-            value="Top Right",
-        )
-        self.radiobutton_topright_image.grid(row=1, column=2, sticky="e")
-
-        self.radiobutton_bottomleft_image = ctk.CTkRadioButton(
-            self.images_tab_cornerselection,
-            text="Bottom Left",
-            variable=self.selected_corner_image,
-            value="Bottom Left",
-        )
-        self.radiobutton_bottomleft_image.grid(row=2, column=1)
-
-        self.radiobutton_bottomright_image = ctk.CTkRadioButton(
-            self.images_tab_cornerselection,
-            text="Bottom Right",
-            variable=self.selected_corner_image,
-            value="Bottom Right",
-        )
-        self.radiobutton_bottomright_image.grid(row=2, column=2, sticky="e")
-
-        # Offset logo image
-        self.label_offset_width_logo_image = ctk.CTkLabel(
+    def create_logo_image_offset_elements(self):
+        """Create elements for the logo image offset."""
+        self.label_offset_width_logo_image = CTkLabel(
             self.images_tab,
             text=f"Width Offset [Range: 0 to 100, Default: {OFFSET_DEFAULT}]",
             font=("Arial", 14),
         )
         self.label_offset_width_logo_image.grid(row=12, column=3, sticky="s")
 
-        self.entry_offset_width_logo_image = ctk.CTkEntry(
+        self.entry_offset_width_logo_image = CTkEntry(
             self.images_tab,
             placeholder_text="Width Offset",
             validate="key",
@@ -740,14 +985,14 @@ class MainWindow(ctk.CTk):
         )
         self.entry_offset_width_logo_image.grid(row=13, column=3, sticky="n")
 
-        self.label_offset_height_logo_image = ctk.CTkLabel(
+        self.label_offset_height_logo_image = CTkLabel(
             self.images_tab,
             text=f"Height Offset [Range: 0 to 100, Default: {OFFSET_DEFAULT}]",
             font=("Arial", 14),
         )
         self.label_offset_height_logo_image.grid(row=14, column=3, sticky="s")
 
-        self.entry_offset_height_logo_image = ctk.CTkEntry(
+        self.entry_offset_height_logo_image = CTkEntry(
             self.images_tab,
             placeholder_text="Height Offset",
             validate="key",
@@ -755,8 +1000,9 @@ class MainWindow(ctk.CTk):
         )
         self.entry_offset_height_logo_image.grid(row=15, column=3, sticky="n")
 
-        # Convert images to png
-        self.combobox_convert_images_format = ctk.CTkComboBox(
+    def create_convert_format_elements(self):
+        """Create elements for converting image format."""
+        self.combobox_convert_images_format = CTkComboBox(
             self.images_tab,
             values=IMAGE_FORMATS,
             state="readonly",
@@ -765,7 +1011,7 @@ class MainWindow(ctk.CTk):
         )
         self.combobox_convert_images_format.grid(row=16, column=3, sticky="ws")
 
-        self.switch_convert_images_to_format = ctk.CTkSwitch(
+        self.switch_convert_images_to_format = CTkSwitch(
             self.images_tab,
             text="Convert to format",
             font=("Arial", 14),
@@ -774,198 +1020,183 @@ class MainWindow(ctk.CTk):
         )
         self.switch_convert_images_to_format.grid(row=16, column=1, columnspan=3, sticky="s")
 
-        # Overwrite output images
-        self.checkbox_overwrite_image = ctk.CTkCheckBox(
-            self.images_tab,
-            text="Overwrite existing images in the output folder",
-            font=("Arial", 14),
-        )
-        self.checkbox_overwrite_image.grid(row=18, column=1, columnspan=3)
+    def create_overwrite_checkbox(self, tab: CTkTabview, row: int):
+        """Create the overwrite checkbox.
 
-        # Resize button
-        button_start_image_processor = ctk.CTkButton(
+        Args:
+            tab (CTkTabview): The tab to add the checkbox to.
+            row (int): The row for the checkbox.
+
+        """
+        checkbox_clear_input_folder = CTkCheckBox(
+            tab, text="Clear input folder", font=("Arial", 14)
+        )
+        checkbox_clear_input_folder.grid(row=row, column=1, columnspan=2, sticky="w", padx=50)
+
+        checkbox_overwrite = CTkCheckBox(
+            tab, text="Overwrite existing files in the output folder", font=("Arial", 14)
+        )
+        checkbox_overwrite.grid(row=row, column=1, columnspan=3)
+
+        checkbox_clear_output_folder = CTkCheckBox(
+            tab, text="Clear output folder", font=("Arial", 14)
+        )
+        checkbox_clear_output_folder.grid(row=row, column=3)
+
+        match tab:
+            case self.images_tab:
+                self.checkbox_clear_input_folder_image = checkbox_clear_input_folder
+                self.checkbox_overwrite_image = checkbox_overwrite
+                self.checkbox_clear_output_folder_image = checkbox_clear_output_folder
+            case self.videos_tab:
+                self.checkbox_clear_input_folder_video = checkbox_clear_input_folder
+                self.checkbox_overwrite_video = checkbox_overwrite
+                self.checkbox_clear_output_folder_video = checkbox_clear_output_folder
+            case _:
+                raise ValueError(f"Tab {tab} is not supported.")
+
+    def create_resize_button(self):
+        """Create the resize button."""
+        button = CTkButton(
             self.images_tab,
             text="Resize",
             font=("Arial", 16),
             command=self.check_values_and_paths_image_processor,
         )
-        button_start_image_processor.grid(row=20, column=1, columnspan=3, sticky="ns")
+        button.grid(row=20, column=1, columnspan=3, sticky="ns")
 
-        # ---------------------------------------------------------------------------- #
-        #                                Video Processor                               #
-        # ---------------------------------------------------------------------------- #
-
-        # Define grid
-        self.videos_tab.columnconfigure(1, weight=1)
-        self.videos_tab.columnconfigure(2, weight=1)
-        self.videos_tab.columnconfigure(3, weight=1)
-
-        for i in range(22):
-            self.videos_tab.rowconfigure(i, weight=1)
-
-        # Input folder
-        label_input = ctk.CTkLabel(master=self.videos_tab, text="Input Folder", font=("Arial", 14))
-        label_input.grid(row=1, column=1, columnspan=3, sticky="s")
-
-        self.entry_input_video = ctk.CTkEntry(
-            master=self.videos_tab, placeholder_text="Path of input folder", width=850
+    def create_add_logo_button(self):
+        """Create the add logo button."""
+        button = CTkButton(
+            self.videos_tab,
+            text="Add Logo to Videos",
+            font=("Arial", 16),
+            command=self.check_values_and_paths_video_processor,
         )
-        self.entry_input_video.grid(row=2, column=1, columnspan=3)
+        button.grid(row=17, column=1, columnspan=3, sticky="ns")
 
-        self.browse_button_input = ctk.CTkButton(
-            master=self.videos_tab,
-            text="Browse input folder",
-            command=lambda: self.browse_path(self.entry_input_video),
+    def create_logo_video_elements(self):
+        """Create elements for the logo video."""
+        label_logo_title_video = CTkLabel(
+            self.videos_tab, text="Logo parameters", font=("Arial", 20)
         )
-        self.browse_button_input.grid(row=3, column=1, columnspan=3, sticky="n")
-
-        # Output folder
-        label_output = ctk.CTkLabel(master=self.videos_tab, text="Output Folder", font=("Arial", 14))
-        label_output.grid(row=4, column=1, columnspan=3, sticky="s")
-
-        self.entry_output_video = ctk.CTkEntry(
-            master=self.videos_tab, placeholder_text="Path of output folder", width=850
-        )
-        self.entry_output_video.grid(row=5, column=1, columnspan=3)
-
-        browse_button_output = ctk.CTkButton(
-            master=self.videos_tab,
-            text="Browse output folder",
-            command=lambda: self.browse_path(self.entry_output_video),
-        )
-        browse_button_output.grid(row=6, column=1, columnspan=3, sticky="n")
-
-        # Logo image
-        label_logo_title_video = ctk.CTkLabel(master=self.videos_tab, text="Logo parameters", font=("Arial", 20))
         label_logo_title_video.grid(row=8, column=1, columnspan=3)
 
-        self.label_logo_video = ctk.CTkLabel(master=self.videos_tab, text="Path to Logo Image", font=("Arial", 14))
+        self.create_logo_video_path_elements()
+        self.create_logo_video_scale_elements()
+        self.create_logo_video_corner_selection()
+        self.create_logo_video_offset_elements()
+
+    def create_logo_video_path_elements(self):
+        """Create elements for the logo video path."""
+        self.label_logo_video = CTkLabel(
+            self.videos_tab, text="Path to Logo Image", font=("Arial", 14)
+        )
         self.label_logo_video.grid(row=9, column=2, sticky="s")
 
-        self.entry_logo_video = ctk.CTkEntry(master=self.videos_tab, placeholder_text="Path to Logo Image")
+        self.entry_logo_video = CTkEntry(self.videos_tab, placeholder_text="Path to Logo Image")
         self.entry_logo_video.grid(row=10, column=2, sticky="ew")
 
-        self.browse_button_logo_video = ctk.CTkButton(
-            master=self.videos_tab,
+        self.browse_button_logo_video = CTkButton(
+            self.videos_tab,
             text="Browse logo image",
             command=lambda: self.browse_path(self.entry_logo_video),
         )
         self.browse_button_logo_video.grid(row=11, column=2, sticky="n")
 
-        self.label_scale_logo_video = ctk.CTkLabel(
-            master=self.videos_tab,
+    def create_logo_video_scale_elements(self):
+        """Create elements for the logo video scale."""
+        self.label_scale_logo_video = CTkLabel(
+            self.videos_tab,
             text=f"Scale of the logo image [Range: 1 to 100 , Default: {VIDEO_SCALE_DEFAULT}]",
             font=("Arial", 14),
         )
         self.label_scale_logo_video.grid(row=12, column=2, sticky="s")
 
-        self.entry_scale_logo_video = ctk.CTkEntry(
-            master=self.videos_tab,
+        self.entry_scale_logo_video = CTkEntry(
+            self.videos_tab,
             placeholder_text="Scale",
             validate="key",
             validatecommand=self.validate_numeric_input_cmd_command,
         )
         self.entry_scale_logo_video.grid(row=13, column=2, sticky="n")
 
-        # Logo corner selection
-        self.label_corner_selection_video = ctk.CTkLabel(
-            master=self.videos_tab, text="Corner Selection", font=("Arial", 14)
+    def create_logo_video_corner_selection(self):
+        """Create elements for the logo video corner selection."""
+        self.label_corner_selection_video = CTkLabel(
+            self.videos_tab, text="Corner Selection", font=("Arial", 14)
         )
         self.label_corner_selection_video.grid(row=8, column=3, sticky="s")
 
-        frame_corner_selection_video = ctk.CTkFrame(master=self.videos_tab)
+        frame_corner_selection_video = CTkFrame(self.videos_tab)
         frame_corner_selection_video.grid(row=9, column=3, sticky="ns")
 
         frame_corner_selection_video.columnconfigure((1, 2), weight=1)
         frame_corner_selection_video.rowconfigure((1, 2), weight=1)
 
-        self.selected_corner_video = ctk.StringVar()
+        self.selected_corner_video = StringVar()
 
-        self.radiobutton_topleft_video = ctk.CTkRadioButton(
-            master=frame_corner_selection_video,
-            text="Top Left",
-            variable=self.selected_corner_video,
-            value="Top Left",
+        self.create_corner_radio_buttons(
+            frame_corner_selection_video, self.selected_corner_video, "video"
         )
-        self.radiobutton_topleft_video.grid(row=1, column=1)
 
-        self.radiobutton_topright_video = ctk.CTkRadioButton(
-            master=frame_corner_selection_video,
-            text="Top Right",
-            variable=self.selected_corner_video,
-            value="Top Right",
-        )
-        self.radiobutton_topright_video.grid(row=1, column=2, sticky="e")
-
-        self.radiobutton_bottomleft_video = ctk.CTkRadioButton(
-            master=frame_corner_selection_video,
-            text="Bottom Left",
-            variable=self.selected_corner_video,
-            value="Bottom Left",
-        )
-        self.radiobutton_bottomleft_video.grid(row=2, column=1)
-
-        self.radiobutton_bottomright_video = ctk.CTkRadioButton(
-            master=frame_corner_selection_video,
-            text="Bottom Right",
-            variable=self.selected_corner_video,
-            value="Bottom Right",
-        )
-        self.radiobutton_bottomright_video.grid(row=2, column=2, sticky="e")
-
-        # Offset logo image
-        self.label_offset_width_logo_video = ctk.CTkLabel(
-            master=self.videos_tab,
+    def create_logo_video_offset_elements(self):
+        """Create elements for the logo video offset."""
+        self.label_offset_width_logo_video = CTkLabel(
+            self.videos_tab,
             text=f"Width Offset [Range: -100 to 100, Default: {VIDEO_WIDTH_OFFSET_DEFAULT}]",
             font=("Arial", 14),
         )
         self.label_offset_width_logo_video.grid(row=10, column=3, sticky="s")
 
-        self.entry_offset_width_logo_video = ctk.CTkEntry(
-            master=self.videos_tab,
+        self.entry_offset_width_logo_video = CTkEntry(
+            self.videos_tab,
             placeholder_text="Width Offset",
             validate="key",
             validatecommand=self.validate_numeric_input_cmd_command,
         )
         self.entry_offset_width_logo_video.grid(row=11, column=3, sticky="n")
 
-        self.label_offset_height_logo_video = ctk.CTkLabel(
-            master=self.videos_tab,
+        self.label_offset_height_logo_video = CTkLabel(
+            self.videos_tab,
             text=f"Height Offset [Range: -100 to 100, Default: {VIDEO_HEIGHT_OFFSET_DEFAULT}]",
             font=("Arial", 14),
         )
         self.label_offset_height_logo_video.grid(row=12, column=3, sticky="s")
 
-        self.entry_offset_height_logo_video = ctk.CTkEntry(
-            master=self.videos_tab,
+        self.entry_offset_height_logo_video = CTkEntry(
+            self.videos_tab,
             placeholder_text="Height Offset",
             validate="key",
             validatecommand=self.validate_numeric_input_cmd_command,
         )
         self.entry_offset_height_logo_video.grid(row=13, column=3, sticky="n")
 
-        # Overwrite output videos
-        self.checkbox_overwrite_video = ctk.CTkCheckBox(
-            master=self.videos_tab,
-            text="Overwrite existing videos in the output folder",
-            font=("Arial", 14),
-        )
-        self.checkbox_overwrite_video.grid(row=15, column=1, columnspan=3)
+    def create_corner_radio_buttons(self, frame: CTkFrame, variable: StringVar, prefix: str):
+        """Create radio buttons for corner selection.
 
-        # Add Logo to Videos button
-        button_start_video_processor = ctk.CTkButton(
-            master=self.videos_tab,
-            text="Add Logo to Videos",
-            font=("Arial", 16),
-            command=self.check_values_and_paths_video_processor,
-        )
-        button_start_video_processor.grid(row=17, column=1, columnspan=3, sticky="ns")
+        Args:
+            frame (CTkFrame): The frame to add the radio buttons to.
+            variable (StringVar): The variable to bind the radio buttons to.
+            prefix (str): The prefix for the attribute names.
 
-    def browse_path(self, entry):
+        """
+        corners = [
+            ("Top Left", 1, 1, f"radiobutton_topleft_{prefix}"),
+            ("Top Right", 1, 2, f"radiobutton_topright_{prefix}"),
+            ("Bottom Left", 2, 1, f"radiobutton_bottomleft_{prefix}"),
+            ("Bottom Right", 2, 2, f"radiobutton_bottomright_{prefix}"),
+        ]
+        for text, row, col, attr_name in corners:
+            radio_button = CTkRadioButton(frame, text=text, variable=variable, value=text)
+            radio_button.grid(row=row, column=col, sticky="e" if "Right" in text else "w")
+            setattr(self, attr_name, radio_button)
+
+    def browse_path(self, entry: CTkEntry):
         """Browse and select a path for the given entry.
 
         Args:
-            entry (ctk.CTkEntry): The entry widget to update with the selected path.
+            entry (CTkEntry): The entry widget to update with the selected path.
 
         """
         initial_dir = None
@@ -1048,7 +1279,7 @@ class MainWindow(ctk.CTk):
         """Check the validity of input values and paths for the image processor."""
         input_folder_path = Path(self.entry_input_image.get())
         output_folder_path = Path(self.entry_output_image.get())
-        logo_image = Path(self.entry_logo_image.get())
+        logo_path = Path(self.entry_logo_image.get())
 
         if not input_folder_path.exists():
             messagebox.showerror("Error", "Invalid path for input folder")
@@ -1056,7 +1287,7 @@ class MainWindow(ctk.CTk):
         if not output_folder_path.exists():
             messagebox.showerror("Error", "Invalid path for output folder")
             return
-        if not logo_image.is_file():
+        if not logo_path.is_file():
             messagebox.showerror("Error", "Invalid path for logo image: No file recognized")
             return
         try:
@@ -1083,25 +1314,29 @@ class MainWindow(ctk.CTk):
             messagebox.showerror("Error", "Invalid pixel value")
             return
 
-        overwrite_output_images = self.checkbox_overwrite_image.get()
+        overwrite_existing_images = self.checkbox_overwrite_image.get()
         add_logo = True if self.toggle_logo_image.get() == 1 else False
         selected_corner = self.selected_corner_image.get()
         convert_to_format = True if self.switch_convert_images_to_format.get() == 1 else False
         format = self.combobox_convert_images_format.get()
+        clear_input_folder = True if self.checkbox_clear_input_folder_image.get() == 1 else False
+        clear_output_folder = True if self.checkbox_clear_output_folder_image.get() == 1 else False
 
         ImageProcessor.resize_images(
-            input_folder_path,
-            output_folder_path,
-            min_pixels,
-            overwrite_output_images,
-            add_logo,
-            logo_image,
-            scale_value,
-            width_offset,
-            height_offset,
-            selected_corner,
-            convert_to_format,
-            format,
+            input_folder_path=input_folder_path,
+            output_folder_path=output_folder_path,
+            min_pixels=min_pixels,
+            overwrite_existing_images=overwrite_existing_images,
+            add_logo=add_logo,
+            logo_path=logo_path,
+            scale=scale_value,
+            offset_logo_width=width_offset,
+            offset_logo_height=height_offset,
+            selected_corner=selected_corner,
+            convert_to_format=convert_to_format,
+            format=format,
+            clear_input_folder=clear_input_folder,
+            clear_output_folder=clear_output_folder,
         )
 
     def check_values_and_paths_video_processor(self):
@@ -1134,18 +1369,22 @@ class MainWindow(ctk.CTk):
             messagebox.showerror("Error", str(e))
             return
 
-        overwrite_output_images = self.checkbox_overwrite_video.get()
+        overwrite_existing_videos = self.checkbox_overwrite_video.get()
         selected_corner = self.selected_corner_video.get()
+        clear_input_folder = True if self.checkbox_clear_input_folder_video.get() == 1 else False
+        clear_output_folder = True if self.checkbox_clear_output_folder_video.get() == 1 else False
 
         VideoProcessor.add_logo_to_video(
-            input_folder_path,
-            output_folder_path,
-            overwrite_output_images,
-            logo_path,
-            scale_value,
-            width_offset,
-            height_offset,
-            selected_corner,
+            input_folder_path=input_folder_path,
+            output_folder_path=output_folder_path,
+            overwrite_existing_videos=overwrite_existing_videos,
+            logo_path=logo_path,
+            scale=scale_value,
+            offset_logo_width=width_offset,
+            offset_logo_height=height_offset,
+            selected_corner=selected_corner,
+            clear_input_folder=clear_input_folder,
+            clear_output_folder=clear_output_folder,
         )
 
     def insert_settings(self):
@@ -1157,7 +1396,7 @@ class MainWindow(ctk.CTk):
         self._insert_image_settings(images_settings)
         self._insert_video_settings(videos_settings)
 
-    def _insert_image_settings(self, images_settings):
+    def _insert_image_settings(self, images_settings: dict):
         """Insert image processor settings into the UI elements.
 
         Args:
@@ -1169,14 +1408,16 @@ class MainWindow(ctk.CTk):
         self.entry_num_pixels.insert(0, images_settings["number_pixels"])
 
         try:
-            self.toggle_logo_image.select() if images_settings["add_logo"] else self.toggle_logo_image.deselect()
+            self.toggle_logo_image.select() if images_settings[
+                "add_logo"
+            ] else self.toggle_logo_image.deselect()
             self.entry_logo_image.insert(0, images_settings["logo_image_path"])
             self.entry_scale_logo_image.insert(0, images_settings["scale"])
             self.entry_offset_width_logo_image.insert(0, images_settings["width_offset"])
             self.entry_offset_height_logo_image.insert(0, images_settings["height_offset"])
             self.toggle_logo_actions()
         except Exception as e:
-            print(f"Error: {e}")
+            logging.error(f"Error: {e}")
 
         match images_settings["logo_corner"]:
             case "Top Left":
@@ -1192,13 +1433,22 @@ class MainWindow(ctk.CTk):
             self.switch_convert_images_to_format.select() if images_settings[
                 "convert_to_format"
             ] else self.switch_convert_images_to_format.deselect()
-            print(images_settings["format"])
+
             self.combobox_convert_images_format.set(images_settings["format"])
             self.switch_convert_images_to_format_actions()
         except Exception as e:
-            print(f"Error: {e}")
+            logging.error(f"Error: {e}")
+        try:
+            self.checkbox_clear_input_folder_image.select() if images_settings[
+                "clear_input_folder"
+            ] else self.checkbox_clear_input_folder_image.deselect()
+            self.checkbox_clear_output_folder_image.select() if images_settings[
+                "clear_output_folder"
+            ] else self.checkbox_clear_output_folder_image.deselect()
+        except Exception as e:
+            logging.error(f"Error: {e}")
 
-    def _insert_video_settings(self, videos_settings):
+    def _insert_video_settings(self, videos_settings: dict):
         """Insert video processor settings into the UI elements.
 
         Args:
@@ -1222,6 +1472,16 @@ class MainWindow(ctk.CTk):
             case "Bottom Right":
                 self.radiobutton_bottomright_video.select()
 
+        try:
+            self.checkbox_clear_input_folder_video.select() if videos_settings[
+                "clear_input_folder"
+            ] else self.checkbox_clear_input_folder_video.deselect()
+            self.checkbox_clear_output_folder_video.select() if videos_settings[
+                "clear_output_folder"
+            ] else self.checkbox_clear_output_folder_video.deselect()
+        except Exception as e:
+            logging.error(f"Error: {e}")
+
     def create_progress_bar_image_processor(self, total_files: int):
         """Create a progress bar for the image processor.
 
@@ -1229,12 +1489,23 @@ class MainWindow(ctk.CTk):
             total_files (int): Total number of files to process.
 
         """
-        self.percent = ctk.StringVar()
+        # Remove existing progress bar if it exists
+        if hasattr(self, "progress_bar") and self.progress_bar.winfo_exists():
+            self.progress_bar.destroy()
 
-        label_percent = ctk.CTkLabel(master=self.images_tab, textvariable=self.percent, font=("Arial", 15))
-        label_percent.grid(row=22, column=1, columnspan=3, sticky="s")
+        if hasattr(self, "label_percent") and self.label_percent.winfo_exists():
+            self.label_percent.destroy()
 
-        self.progress_bar = ttk.Progressbar(master=self.images_tab, orient="horizontal", length=400, mode="determinate")
+        self.percent = StringVar()
+
+        self.label_percent = CTkLabel(
+            master=self.images_tab, textvariable=self.percent, font=("Arial", 15)
+        )
+        self.label_percent.grid(row=22, column=1, columnspan=3, sticky="s")
+
+        self.progress_bar = ttk.Progressbar(
+            master=self.images_tab, orient="horizontal", length=400, mode="determinate"
+        )
         self.progress_bar.grid(row=23, column=1, columnspan=3, sticky="ew")
 
         self.progress_bar["maximum"] = total_files
@@ -1270,12 +1541,23 @@ class MainWindow(ctk.CTk):
             total_files (int): Total number of files to process.
 
         """
-        self.percent = ctk.StringVar()
+        # Remove existing progress bar if it exists
+        if hasattr(self, "progress_bar") and self.progress_bar.winfo_exists():
+            self.progress_bar.destroy()
 
-        label_percent = ctk.CTkLabel(master=self.videos_tab, textvariable=self.percent, font=("Arial", 15))
+        if hasattr(self, "label_percent") and self.label_percent.winfo_exists():
+            self.label_percent.destroy()
+
+        self.percent = StringVar()
+
+        label_percent = CTkLabel(
+            master=self.videos_tab, textvariable=self.percent, font=("Arial", 15)
+        )
         label_percent.grid(row=20, column=1, columnspan=3, sticky="s")
 
-        self.progress_bar = ttk.Progressbar(master=self.videos_tab, orient="horizontal", length=400, mode="determinate")
+        self.progress_bar = ttk.Progressbar(
+            master=self.videos_tab, orient="horizontal", length=400, mode="determinate"
+        )
         self.progress_bar.grid(row=21, column=1, columnspan=3, sticky="ew")
 
         self.progress_bar["maximum"] = total_files
@@ -1307,6 +1589,22 @@ class MainWindow(ctk.CTk):
         self.percent.set(f"Done! Processed all videos in {execution_time} seconds")
         self.images_tab.update()
         self.progress_bar.pack_forget()
+
+    @staticmethod
+    def clear_folder(folder_path: str):
+        """Clear the contents of a folder by removing and recreating it.
+
+        Args:
+            folder_path (str): Path to the folder to be cleared.
+
+        """
+        try:
+            # Remove the entire folder
+            shutil.rmtree(folder_path)
+            # Recreate the folder
+            os.makedirs(folder_path)
+        except Exception as e:
+            logging.info("Failed to clear folder %s. Reason: %s" % (folder_path, e))
 
     @staticmethod
     def validate_numeric_input(value_if_allowed: str) -> bool:
@@ -1373,7 +1671,7 @@ def create_config_json():
     """Create a default config.json file."""
     default_config_json_template = {
         "repo_url": "https://raw.githubusercontent.com/0DarkPhoenix/Add-Logo-Processor/main/",
-        "version": "v1.3",
+        "version": "v1.4",
         "downgrade_version": "",
     }
     with open(CONFIG_PATH, "w") as file:
@@ -1395,6 +1693,9 @@ def create_settings_json():
             "logo_corner": LOGO_CORNER_DEFAULT,
             "convert_to_format": False,
             "format": IMAGE_FORMATS[0],
+            "overwrite_existing_files": False,
+            "clear_input_folder": False,
+            "clear_output_folder": False,
         },
         "video_processor": {
             "input_folder_path": "",
@@ -1404,6 +1705,9 @@ def create_settings_json():
             "width_offset": str(VIDEO_WIDTH_OFFSET_DEFAULT),
             "height_offset": str(VIDEO_HEIGHT_OFFSET_DEFAULT),
             "logo_corner": LOGO_CORNER_DEFAULT,
+            "overwrite_existing_files": False,
+            "clear_input_folder": False,
+            "clear_output_folder": False,
         },
     }
 
@@ -1411,23 +1715,24 @@ def create_settings_json():
     logging.info("Created settings.json")
 
 
-def check_version() -> None:
+async def check_version() -> None:
     """Check if there is a new version of the program available and asks if the user wants to update."""
     try:
 
-        def get_latest_version(repo_url):
-            response = requests.get(repo_url + "version.txt")
-            if response.status_code == 200:
-                return response.text.strip()
-            else:
-                return None
+        async def get_latest_version(repo_url):
+            async with aiohttp.ClientSession() as session:
+                async with session.get(repo_url + "version.txt") as response:
+                    if response.status == 200:
+                        return await response.text()
+                    else:
+                        return None
 
         config = MainWindow.load_config()
 
         repo_url = config["repo_url"]
 
         current_version = config["version"]
-        latest_version = get_latest_version(repo_url)
+        latest_version = await get_latest_version(repo_url)
 
         if current_version is None or latest_version is None:
             logging.error("Failed to retrieve versions.")
@@ -1436,10 +1741,10 @@ def check_version() -> None:
         logging.info(f"Current version: {current_version}")
         logging.info(f"Latest version: {latest_version}")
 
-        if latest_version > current_version:
+        if version.parse(latest_version) > version.parse(current_version):
             logging.info(f"New version available! ({current_version} -> {latest_version})")
             update_window = UpdateAvailableWindow()
-            update_window.run(current_version, latest_version)
+            update_window.run(current_version, latest_version, repo_url)
             update_window.mainloop()
         else:
             logging.info("You are on the most recent version!")
@@ -1457,7 +1762,7 @@ if __name__ == "__main__":
     if not os.path.exists(SETTINGS_PATH):
         create_settings_json()
 
-    check_version()
+    asyncio.run(check_version())
 
     main_window = MainWindow()
     main_window.run()

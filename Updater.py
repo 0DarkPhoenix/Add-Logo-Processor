@@ -7,6 +7,7 @@ from pathlib import Path
 
 import psutil
 import requests
+import tqdm
 
 if getattr(sys, "frozen", False):
     # If the application is run as a bundled executable, use the directory of the executable
@@ -77,20 +78,10 @@ def get_latest_version(repo_url: str) -> str | None:
 
 
 def download_and_install_version(release_url: str, filename: str) -> bool:
-    """Download and install the given version of the application.
-
-    Args:
-        release_url (str): URL to the GitHub release.
-        filename (str): Name of the file to download.
-
-    Returns:
-        bool: True if the download and installation was successful, False otherwise.
-
-    """
     try:
-        logging.info(f"Downloading {filename}...")
+        logging.info(f"Making download request for {filename} to the repository...")
         exe_url = f"{release_url}/{filename}"
-        response = requests.get(exe_url, allow_redirects=True)
+        response = requests.get(exe_url, stream=True, allow_redirects=True)
 
         if response.status_code != 200:
             logging.error(
@@ -98,22 +89,37 @@ def download_and_install_version(release_url: str, filename: str) -> bool:
             )
             return False
 
-        logging.info(f"Installing {filename}...")
-        # Kill the main executable
+        logging.info("Killing any running instances of the application...")
         kill_process(filename)
         time.sleep(0.5)
 
-        # Overwrite the old executable with the new executable
-        with open(filename, "wb") as file:
-            file.write(response.content)
+        logging.info(f"Downloading {filename}...")
+        total_size = int(response.headers.get("content-length", 0))
+        block_size = 1000  # 1 KB
+
+        with open(filename, "wb") as file, tqdm.tqdm(
+            desc=filename,
+            total=total_size,
+            unit="B",
+            unit_scale=True,
+            unit_divisor=block_size,
+        ) as progress_bar:
+            for data in response.iter_content(block_size):
+                size = file.write(data)
+                progress_bar.update(size)
+
         logging.info(f"Successfully downloaded and installed {filename}")
         return True
 
     except requests.RequestException as e:
-        logging.error(f"RequestException while trying to download {filename} from {release_url}: {e}")
+        logging.error(
+            f"RequestException while trying to download {filename} from {release_url}: {e}"
+        )
         return False
     except Exception as e:
-        logging.error(f"An unexpected error occurred while downloading and installing {filename}: {e}")
+        logging.error(
+            f"An unexpected error occurred while downloading and installing {filename}: {e}"
+        )
         return False
 
 
@@ -208,19 +214,23 @@ def main() -> None:
 
         repo_url = config["repo_url"]
 
-        version = get_latest_version(repo_url) if get_downgrade_version(config) == "" else get_downgrade_version(config)
-        logging.info(f"Updating from {config['version']} to {version}")
+        version_number = (
+            get_latest_version(repo_url)
+            if get_downgrade_version(config) == ""
+            else get_downgrade_version(config)
+        )
+        logging.info(f"Updating from {config['version']} to {version_number}")
 
         # main executable is always located in /Release/[version]
-        releases_url = repo_url + "Release/" + version
+        release_url = repo_url + "Release/" + version_number
 
-        if download_and_install_version(releases_url, exe_filename):
+        if download_and_install_version(release_url, exe_filename):
             # Convert JSON files
-            convert_json_files(releases_url)
+            convert_json_files(release_url)
 
             config = load_config()
             # Write version to config.json
-            config["version"] = version
+            config["version"] = version_number
 
             # Change downgrade_version back to an empty string
             config["downgrade_version"] = ""
