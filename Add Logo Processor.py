@@ -30,6 +30,7 @@ from customtkinter import (
     CTkRadioButton,
     CTkSwitch,
     CTkTabview,
+    CTkToplevel,
     StringVar,
     set_appearance_mode,
 )
@@ -92,7 +93,15 @@ VIDEO_WIDTH_OFFSET_DEFAULT = 10
 VIDEO_HEIGHT_OFFSET_DEFAULT = 15
 
 # ----------------------------------- v1.5 ----------------------------------- #
-# TODO: Write code for when the user wants to downgrade their current version of the application
+# TODO: Try to integrate both the downgrading and viewing the changelog logic into a single window without tabs
+
+# TODO: Write the logic for downgrading or upgrading versions using the versions window:
+# - Change the use of version.txt by adding all possible versions to it, putting them in descending order
+
+# TODO: Write the logic for viewing the changelog using the versions window:
+# - Create a changelog.md file as changelog which will be stored locally on someones computer
+# - Read the changelog.md file and display it in the changelog window
+# - Add code to Add Logo Processor.py to get the latest changelog when a new version is available (Not affected by if the user chooses to update or not)
 
 
 class UpdateAvailableWindow(CTk):
@@ -228,6 +237,69 @@ class UpdateAvailableWindow(CTk):
     def close(self):
         """Close the update available window."""
         self.destroy()
+
+
+class VersionsWindow(CTkToplevel):
+    def __init__(self):
+        super().__init__()
+
+        self.title("Versions Window")
+        self.geometry("600x600")
+        self.attributes("-topmost", True)
+        self.create_window_elements()
+
+    def create_window_elements(self):
+        """Create the elements of the window."""
+        tabview = self.create_tabview()
+        self.versions_tab = tabview.add("Versions")
+        self.changelog_tab = tabview.add("Changelog")
+        self.setup_versions_tab()
+        self.setup_changelog_tab()
+
+    def create_tabview(self):
+        """Create the tab view.
+
+        Returns
+            CTkTabview: The created tab view.
+
+        """
+        tabview = CTkTabview(self, fg_color="#242424")
+        tabview.place(relx=0, rely=0.07, relwidth=1, relheight=0.93)
+        return tabview
+
+    def configure_grid(self, tab: CTkTabview, columns: int, rows: int):
+        """Configure the grid layout for a tab.
+
+        Args:
+            tab (CTkTabview): The tab to configure.
+            columns (int): Number of columns.
+            rows (int): Number of rows.
+
+        """
+        for col in range(columns):
+            tab.columnconfigure(col, weight=1)
+        for row in range(rows):
+            tab.rowconfigure(row, weight=1)
+
+    def setup_versions_tab(self):
+        """Create the image tab."""
+        self.configure_grid(tab=self.versions_tab, columns=1, rows=1)
+        self.create_versions_tab_elements()
+
+    def setup_changelog_tab(self):
+        """Create the video tab."""
+        self.configure_grid(tab=self.changelog_tab, columns=1, rows=1)
+        self.create_changelog_tab_elements()
+
+    def create_versions_tab_elements(self):
+        """Create the elements of the versions tab."""
+        coming_soon_title = CTkLabel(self.versions_tab, text="Coming Soon", font=("Arial", 30))
+        coming_soon_title.place(relx=0.5, rely=0.4, anchor="center")
+
+    def create_changelog_tab_elements(self):
+        """Create the elements of the changelog tab."""
+        coming_soon_title = CTkLabel(self.changelog_tab, text="Coming Soon", font=("Arial", 30))
+        coming_soon_title.place(relx=0.5, rely=0.4, anchor="center")
 
 
 class ImageProcessor:
@@ -698,17 +770,25 @@ class MainWindow(CTk):
 
     def setup_ui(self):
         """Create the UI elements for the images and videos tab."""
-        self.create_main_title()
+        self.create_top_bar()
         tabview = self.create_tabview()
         self.images_tab = tabview.add("Images")
         self.videos_tab = tabview.add("Videos")
         self.setup_image_tab()
         self.setup_video_tab()
 
-    def create_main_title(self):
-        """Create the main title."""
+    def create_top_bar(self):
+        """Create the main title and the version window button in the top bar."""
         main_title = CTkLabel(self, text="Image & Video Processor", font=("Arial", 28))
         main_title.place(relx=0.5, rely=0.03, anchor="center")
+
+        config = MainWindow.load_config()
+        version_number = config["version"]
+
+        version_window_button = CTkButton(
+            self, text=f"Version: {version_number}", command=VersionsWindow
+        )
+        version_window_button.place(relx=0.03, rely=0.03, anchor="nw")
 
     def create_tabview(self):
         """Create the tab view.
